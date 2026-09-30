@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
+const { parseStringPromise } = require('xml2js');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
@@ -14,9 +15,9 @@ app.use(express.json({ limit: "10kb" }));
 const CONFIG = {
   timeoutMs: 8000,
   localApi: {
-    host: "http://120.79.98.64:1888",
+    host: "http://120.79.98.64:7888",
     path: "/prod-api/order/track/html/getTrackByTrackNoNumberList",
-    secretkey: "n6VD8BDmTUhmoljTMT41Uw96=="
+    secretkey: "RoipOXsuEHxtskZtnG7u1w1=="
   }
 };
 
@@ -26,64 +27,63 @@ app.options("/", (req, res) => {
 
 async function queryLocalApi(trackNo) {
   try {
-    const fullUrl = `${CONFIG.localApi.host}${CONFIG.localApi.path}`;
-    console.log("上游请求地址：", fullUrl);
-    const formBody = new URLSearchParams();
-    formBody.append("waybillStr", trackNo);
-    formBody.append("secretkey", CONFIG.localApi.secretkey);
-    console.log("表单提交参数：", formBody.toString());
+    const waybillStr = encodeURIComponent(trackNo);
+    const sk = encodeURIComponent(CONFIG.localApi.secretkey);
+    const fullUrl = `${CONFIG.localApi.host}${CONFIG.localApi.path}?waybillStr=${waybillStr}&secretkey=${sk}`;
+    console.log("上游GET请求地址：", fullUrl);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CONFIG.timeoutMs);
     const resp = await fetch(fullUrl, {
-      method: "POST",
+      method: "GET",
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
       },
-      body: formBody.toString(),
       signal: controller.signal
     });
     clearTimeout(timer);
 
     console.log("上游HTTP状态码：", resp.status);
     const rawText = await resp.text();
-    console.log("上游原始返回：", rawText);
+    console.log("上游原始返回XML：", rawText);
 
-    let data;
-    try {
-      data = JSON.parse(rawText);
-    } catch (e) {
-      throw new Error("返回不是合法JSON");
+    // 解析XML
+    const xmlData = await parseStringPromise(rawText);
+    const ajax = xmlData.AjaxResult;
+    const resCode = ajax.code[0];
+    const msg = ajax.msg[0];
+    console.log("解析结果 msg=",msg," code=",resCode);
+
+    if(resCode !== "200"){
+      throw new Error(`${msg}, code:${resCode}`);
     }
-    console.log("解析后的JSON：", data);
+    const dataNode = ajax.data[0];
+    const searchNumber = Array.isArray(dataNode.searchNumber) ? dataNode.searchNumber[0] : "";
+    const orderId = Array.isArray(dataNode.orderId) ? dataNode.orderId[0] : "";
+    const waybillNumber = Array.isArray(dataNode.waybillNumber) ? dataNode.waybillNumber[0] : "";
+    const orderStatus = Array.isArray(dataNode.orderStatus) ? dataNode.orderStatus[0] : "";
+    const trackNumber = Array.isArray(dataNode.trackNumber) ? dataNode.trackNumber[0] : "";
+    const destination = Array.isArray(dataNode.destination) ? dataNode.destination[0] : "";
+    const location = Array.isArray(dataNode.location) ? dataNode.location[0] : "";
+    const trackInfo = Array.isArray(dataNode.trackInfo) ? dataNode.trackInfo[0] : "";
+    const trackDate = Array.isArray(dataNode.trackDate) ? dataNode.trackDate[0] : "";
 
-    if (data.code !== 200) {
-      throw new Error(`${data.msg || "接口业务错误"}, code:${data.code}`);
-    }
-
-    if (!data.data || !Array.isArray(data.data) || data.data.length === 0) {
-      return { success: false, msg: "该单号暂无物流轨迹数据" };
-    }
-
-    const item = data.data[0];
-    const formatItem = {
-      tracknumber: item.trackNumber || "",
-      waybillnumber: item.searchNumber || "",
-      countrycode: "",
-      countryname: item.destination || "",
-      orderstatus: item.orderStatus || "运输中",
-      orderstatusName: item.orderStatus || "运输中",
-      trackItems: [
-        {
-          trackdate: item.trackDate || "",
-          info: item.trackInfo || "",
-          location: item.location || ""
-        }
-      ],
-      subOrderList: [],
-      subOrderTrackItems: {}
+    return {
+      success:true,
+      msg:msg,
+      data:[{
+        searchNumber,
+        orderId,
+        waybillNumber,
+        orderStatus,
+        trackNumber,
+        destination,
+        location,
+        trackInfo,
+        trackDate
+      }]
     };
-    return { success: true, data: [formatItem] };
+
   } catch (err) {
     console.error("查询捕获异常：", err);
     return { success: false, msg: err.message };
@@ -102,7 +102,7 @@ app.post("/", async (req, res) => {
     if (apiResult.success) {
       return res.json({
         code: 0,
-        msg: "查询成功",
+        msg: apiResult.msg,
         data: apiResult.data
       });
     } else {
@@ -116,7 +116,7 @@ app.post("/", async (req, res) => {
     console.error("中转服务全局异常：", err);
     let msg = "中转服务异常";
     if (err.name === "AbortError") msg = "上游接口请求超时";
-    return res.json({ code: -99, msg, error: err.message, data: [] });
+    return res.json({ code: -99, msg, error: err.message });
   }
 });
 
