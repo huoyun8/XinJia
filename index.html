@@ -225,6 +225,7 @@ const CONST={
     TOAST_SHOW_TIME:1200,
     HISTORY_KEY:"track_query_history",
     MAX_HISTORY_COUNT:10,
+    // 仅保留后端统一中转地址
     PROXY_URL:"https://xinjia5.onrender.com"
 };
 const countryMap = {
@@ -284,6 +285,7 @@ EL.resetBtn.onclick=()=>{
     EL.serviceCard.style.display='block';
     showToast('已清空输入单号');
 };
+// 仅调用后端中转接口，所有渠道查询逻辑全部移至服务端
 async function fetchTrackProxy(no){
     try{
         const res = await fetch(CONST.PROXY_URL,{
@@ -298,37 +300,33 @@ async function fetchTrackProxy(no){
         return {code:-99,msg:"中转服务请求超时或异常"};
     }
 }
-function renderShipItem(item,idx,queryNo){
-    const d = item;
-    const inputNo = queryNo;
-    const transNo = d.outer_carrier_tracking_number || "";
-    const trackList = d.traces || [];
-    const trackTimeKey = "time";
-    const trackDescKey = "info";
-    let countryText = d.country || "";
-    if(d.postcode) countryText += " " + d.postcode;
-    const parcelCount = d.parcel_count;
-    const statusText = d.status === 'delivered' ? '已签收' : '运输中';
-    const statusClass = d.status === 'delivered' ? 'tag-delivered' : 'tag-transit';
-    const sort=[...trackList].sort((a,b)=>new Date(b[trackTimeKey]) - new Date(a[trackTimeKey]));
+// 统一渲染函数，适配后端标准化输出结构
+function renderShipBlock(dataItem,idx,queryNo){
+    const d = dataItem;
+    const trackList = d.trackList || [];
+    const sortTrack = [...trackList].sort((a,b)=>new Date(b.trackdate || b.time) - new Date(a.trackdate || b.time));
     const tid=`${idx}-${queryNo}`;
-    const previewList=sort.slice(0,2);
-    const fullList=sort.slice(2);
+    const previewList = sortTrack.slice(0,2);
+    const fullList = sortTrack.slice(2);
+
     let transHtml = '<span>无</span>';
-    if(transNo){
-        const parts = transNo.split(' ');
+    if(d.transNo){
+        const parts = d.transNo.split(' ');
         if(parts.length > 1){
             const carrierText = parts.slice(0,-1).join(' ');
             const pureNum = parts.pop();
-            transHtml = `<span>${carrierText} </span><span class="text-blue" onclick="copyTransNo('${transNo}')">${pureNum}</span>`;
+            transHtml = `<span>${carrierText} </span><span class="text-blue" onclick="copyTransNo('${d.transNo}')">${pureNum}</span>`;
         }else{
-            transHtml = `<span class="text-blue" onclick="copyTransNo('${transNo}')">${transNo}</span>`;
+            transHtml = `<span class="text-blue" onclick="copyTransNo('${d.transNo}')">${d.transNo}</span>`;
         }
     }
-    let destLine = `<span>${countryText}</span>`;
-    if(parcelCount !== null && parcelCount !== undefined){
-        destLine += ` <span style="margin-left:12px;color:#333;">包裹数量：${parcelCount}件</span>`;
-    }
+    const countryCode = (d.country || "").toUpperCase();
+    const countryText = countryMap[countryCode] || d.country || "";
+    let destHtml = `<span>${countryText}</span>`;
+    if(d.parcelCount !== null) destHtml += ` <span style="margin-left:12px;color:#333;">包裹数量：${d.parcelCount}件</span>`;
+    const statusText = d.status === "delivered" ? "已签收" : "运输中";
+    const statusClass = d.status === "delivered" ? "tag-delivered" : "tag-transit";
+
     let html=`
     <div class="ship-card" data-index="${tid}">
         <div class="ship-head">
@@ -337,7 +335,7 @@ function renderShipItem(item,idx,queryNo){
         </div>
         <div class="info-row">
             <span class="info-label">查询单号：</span>
-            <span class="text-blue-static">${inputNo.trim()}</span>
+            <span class="text-blue-static">${queryNo.toUpperCase()}</span>
         </div>
         <div class="info-row">
             <span class="info-label">转运单号：</span>
@@ -345,28 +343,35 @@ function renderShipItem(item,idx,queryNo){
         </div>
         <div class="info-row">
             <span class="info-label">目的地：</span>
-            ${destLine}
-        </div>`;
+            ${destHtml}
+        </div>
+    `;
     html += `<div class="track-preview">`;
     previewList.forEach(item=>{
+        const time = item.trackdate || item.time;
+        const desc = item.info || "";
+        const loc = item.location ? ` — ${item.location}` : "";
         html += `<div class="timeline-item">
-            <div class="track-time">${item[trackTimeKey] || ""}</div>
-            <div class="track-desc">${item[trackDescKey] || ""}${item.location ? ' — ' + item.location : ''}</div>
+            <div class="track-time">${time}</div>
+            <div class="track-desc">${desc}${loc}</div>
         </div>`;
     })
     html += `</div>`;
-    if(fullList.length>0){
+    if(fullList.length > 0){
         html += `<div class="track-wrap track-full" id="track-${tid}">`;
         fullList.forEach(item=>{
+            const time = item.trackdate || item.time;
+            const desc = item.info || "";
+            const loc = item.location ? ` — ${item.location}` : "";
             html += `<div class="timeline-item">
-                <div class="track-time">${item[trackTimeKey] || ""}</div>
-                <div class="track-desc">${item[trackDescKey] || ""}${item.location ? ' — ' + item.location : ''}</div>
+                <div class="track-time">${time}</div>
+                <div class="track-desc">${desc}${loc}</div>
             </div>`;
         })
         html += `</div>
         <div class="toggle-track" data-target="${tid}">▼ 展开完整物流轨迹</div>`;
     }
-    if(sort.length === 0){
+    if(sortTrack.length === 0){
         html += `<div style="margin-top:8px;color:#888;font-size:14px;">暂未获取到物流轨迹</div>`;
     }
     html += `</div>`;
@@ -379,7 +384,7 @@ document.addEventListener('click',e=>{
     const fullDom=document.getElementById(`track-${tid}`);
     const isOpen=fullDom.style.display==='block';
     fullDom.style.display = isOpen ? "none" : "block";
-    btn.innerText = isOpen ? '▼ 展开完整物流轨迹' : '▲ 收起物流轨迹';
+    btn.innerText = isOpen ? '▲ 收起物流轨迹' : '▼ 展开完整物流轨迹';
 });
 EL.queryBtn.onclick=async ()=>{
     const rawVal=EL.orderInput.value.trim();
@@ -412,11 +417,12 @@ EL.queryBtn.onclick=async ()=>{
         for(let idx=0; idx<unique.length; idx++){
             const currNo = unique[idx];
             EL.resultBox.innerHTML=`<div class="loading-tip">🔄 正在查询第${idx+1}/${unique.length}个：${currNo}</div>`;
+            // 只请求后端中转接口
             const resData = await fetchTrackProxy(currNo);
             if(resData.code === 0 && Array.isArray(resData.data) && resData.data.length > 0){
                 resData.data.forEach((item,i)=>{
-                    allRenderHtml += renderShipItem(item, idx*10+i, currNo);
-                });
+                    allRenderHtml += renderShipBlock(item, idx*10+i, currNo);
+                })
                 addHistoryRecord(currNo);
             }else{
                 fullFailList.push({no:currNo, msg:resData.msg});
