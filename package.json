@@ -1,16 +1,12 @@
 {
-  "name": "render-track-proxy",
+  "name": "track-proxy",
   "version": "1.0.0",
-  "description": "全球物流查询平台 - Render 中转查询接口",
-  "main": "index.js",
-  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0"
+  },
   "scripts": {
     "start": "node index.js"
-  },
-  "engines": {
-    "node": ">=18"
-  },
-  "dependencies": {
-    "express": "^4.19.2"
   }
 }
