@@ -227,14 +227,8 @@ const CONST={
     TOAST_SHOW_TIME:1200,
     HISTORY_KEY:"track_query_history",
     MAX_HISTORY_COUNT:10,
-    // 旧渠道1、2（优先查询）
-    API_ENCRYPT:["aHR0cHM6Ly90cmFja2luZy5uZXh0c2xzLmNvbS9yZXN0L3RyYWNlL3RyYWNraW5nL2xpc3RzP2FwcD02NTZkOTJmNTczZjA0MjdlOGU1Y2E1MzYmbnVtYmVyPQ==","aHR0cHM6Ly90cmFja2luZy5uZXh0c2xzLmNvbS9yZXN0L3RyYWNlL3RyYWNraW5nL2xpc3RzP2FwcD02NzIwNGU1YzczZjA0MjQ2NDg2OTI0Y2ImbnVtYmVyPQ=="],
-    // 中转3 Netlify，中转4 Render互为备份（12查不到才走这里）
-    PROXY_BACKUP_LIST:[
-        "https://xinjia5.onrender.com"
-    ],
-    // 1、2号接口(nextsls)收编到后端中转
-    NEXT_SLS_PROXY:"https://xinjia5.onrender.com"
+    // 统一中转后端地址(唯一入口: 1/2号走 /nextsls, 3号走 /)
+    PROXY_API:"https://xinjia5.onrender.com"
 };
 const countryMap = {
   "AT": "奥地利","BE": "比利时","BG": "保加利亚","HR": "克罗地亚","CY": "塞浦路斯",
@@ -293,11 +287,10 @@ EL.resetBtn.onclick=()=>{
     EL.serviceCard.style.display='block';
     showToast('已清空输入单号');
 };
-const getApiList=()=>CONST.API_ENCRYPT.map(s=>atob(s));
-// 旧渠道1、2查询
+// 1、2号查询(走统一后端 /nextsls)
 const getSingleTrackOld=async num=>{
     try{
-        const res=await fetch(CONST.NEXT_SLS_PROXY+"/nextsls",{
+        const res=await fetch(CONST.PROXY_API+"/nextsls",{
             method:"POST",
             headers:{"Content-Type":"application/json"},
             body:JSON.stringify({trackNo:num}),
@@ -311,26 +304,23 @@ const getSingleTrackOld=async num=>{
     }
     return null;
 };
-// 轮询中转3、4，成功立刻返回，失败切换下一个
+// 3号(SCF)查询(走统一后端 /)
 async function getBackupProxyTrack(no){
-    for(const url of CONST.PROXY_BACKUP_LIST){
-        try{
-            const res = await fetch(url,{
-                method:"POST",
-                headers:{"Content-Type":"application/json"},
-                body:JSON.stringify({trackNo: no}),
-                signal:AbortSignal.timeout(7000)
-            })
-            if(!res.ok) continue;
-            const json = await res.json();
-            console.log("中转接口返回",url, json);
-            if(json.code === 0 && json.data && Array.isArray(json.data) && json.data.length>0 && !json.data[0].errormsg){
-                return {type:"scf", data:json.data[0], inputNo:no};
-            }
-        }catch(e){
-            console.warn("中转接口失败切换下一个",url, e.message);
-            continue;
+    try{
+        const res = await fetch(CONST.PROXY_API,{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({trackNo: no}),
+            signal:AbortSignal.timeout(7000)
+        })
+        if(!res.ok) return null;
+        const json = await res.json();
+        console.log("中转接口返回",CONST.PROXY_API, json);
+        if(json.code === 0 && json.data && Array.isArray(json.data) && json.data.length>0 && !json.data[0].errormsg){
+            return {type:"scf", data:json.data[0], inputNo:no};
         }
+    }catch(e){
+        console.warn("中转接口失败", CONST.PROXY_API, e.message);
     }
     return null;
 }
@@ -507,7 +497,7 @@ EL.queryBtn.onclick=async ()=>{
                 globalHasValid = true;
                 addHistoryRecord(currNo);
             }else{
-                fullFailList.push({no:currNo, msg:"单号错误，请检查。"});
+                fullFailList.push({no:currNo, msg:"1/2/3/4渠道均未匹配到运单"});
             }
         }
         let resTitle = `<h3>查询结果（共${unique.length}个单号）</h3>`;
