@@ -16,7 +16,7 @@ const CONFIG = {
   localApi: {
     host: "http://120.79.98.64:1888",
     path: "/prod-api/order/track/html/getTrackByTrackNoNumberList",
-    secretkey: "n6VD8BDmTUhmoljTMT41Uw96%253D%253D"
+    secretkey: "n6VD8BDmTUhmoljTMT41Uw96=="
   }
 };
 
@@ -56,8 +56,6 @@ async function queryLocalApi(trackNo) {
       throw new Error(`${data.msg || "接口业务错误"}, code:${data.code}`);
     }
 
-    // 根据上游返回JSON结构，提取物流信息
-    // 注意：这里需要看成功时返回的JSON字段，先预留结构
     if (!data.data || !Array.isArray(data.data) || data.data.length === 0) {
       return { success: false, msg: "该单号暂无物流轨迹数据" };
     }
@@ -90,7 +88,7 @@ async function queryLocalApi(trackNo) {
 app.post("/", async (req, res) => {
   try {
     const inputNo = (req.body.trackNo || "").trim();
-    console.log("收到查询单号：", inputNo);
+    console.log("收到前端查询单号：", inputNo);
 
     if (!inputNo) return res.json({ code: -2, msg: "运单号不能为空", data: [] });
     if (inputNo.length < 5 || inputNo.length > 18) return res.json({ code: -2, msg: "单号长度需5-18位，请检查", data: [] });
@@ -110,14 +108,13 @@ app.post("/", async (req, res) => {
       });
     }
   } catch (err) {
-    console.error("全局异常：", err);
+    console.error("中转服务全局异常：", err);
     let msg = "中转服务异常";
     if (err.name === "AbortError") msg = "上游接口请求超时";
     return res.json({ code: -99, msg, error: err.message, data: [] });
   }
 });
 
-// 调试路由
 app.get("/debug", async (req, res) => {
   const trackNo = req.query.no || "";
   if (!trackNo) return res.send("用法 /debug?no=单号");
