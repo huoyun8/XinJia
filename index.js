@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
-const { AbortSignal } = require('timeout-signal');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
@@ -14,7 +13,7 @@ app.use(cors({
 // 解析POST json body
 app.use(express.json({ limit: "10kb" }));
 
-// 固定上游鉴权配置，和原代码完全一致
+// 固定上游鉴权配置，和你Netlify函数完全一致
 const CONFIG = {
   clientCode: "20260928",
   apiToken: "6d3bacb8-f628-48c2-8325-755802702a05",
@@ -23,17 +22,16 @@ const CONFIG = {
   timeoutMs: 8000
 };
 
-// 根路径OPTIONS预检（原/trackProxy逻辑迁移到/）
+// 预检OPTIONS 单独处理
 app.options("/", (req, res) => {
   res.sendStatus(200);
 });
 
-// 核心中转接口：路由改为根路径 /，无需后缀
+// 核心中转接口【放在最前面！】
 app.post("/", async (req, res) => {
   try {
     const trackNo = (req.body.trackNo || "").trim();
     console.log("收到查询单号:", trackNo);
-
     // 单号校验逻辑不变
     if (!trackNo) {
       return res.json({ code: -2, msg: "运单号不能为空" });
@@ -41,7 +39,6 @@ app.post("/", async (req, res) => {
     if (trackNo.length < 5 || trackNo.length > 18) {
       return res.json({ code: -2, msg: "单号长度需5-18位，请检查" });
     }
-
     let lastUpstreamResp = null;
     // 循环三种单号类型轮询上游
     for (const type of CONFIG.queryTypes) {
@@ -56,20 +53,22 @@ app.post("/", async (req, res) => {
       };
       console.log(`【${type}】请求报文:`, payload);
 
-      // 超时强制中断请求
-      const signal = AbortSignal.timeout(CONFIG.timeoutMs);
+      // 改用原生AbortController，移除timeout-signal依赖
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), CONFIG.timeoutMs);
+
       const fetchRes = await fetch(CONFIG.upstreamUrl, {
         method: "POST",
-        signal,
+        signal: controller.signal,
         headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify(payload)
       });
+      clearTimeout(timer);
       const data = await fetchRes.json();
       console.log(`【${type}】上游返回:`, data);
       lastUpstreamResp = data;
-
       // 命中有效运单直接返回
       if (data.code === 0 && Array.isArray(data.data) && data.data.length > 0) {
         const firstItem = data.data[0];
@@ -79,7 +78,6 @@ app.post("/", async (req, res) => {
         }
       }
     }
-
     // 三种类型全部无有效数据，返回最后一次上游响应
     console.log("全部类型查询无匹配运单，返回最后上游结果");
     return res.json(lastUpstreamResp);
@@ -96,14 +94,14 @@ app.post("/", async (req, res) => {
   }
 });
 
+// 健康检测GET路由（放在POST路由之后）
+app.get("/", (req, res) => {
+  res.send("Track Proxy Service Running OK | Render Node Express");
+});
+
 // 拦截根路径下非POST非法请求
 app.all("/", (req, res) => {
   return res.json({ code: -1, msg: "仅支持 POST 请求" });
-});
-
-// Render健康检测路由（保留，不影响业务）
-app.get("/", (req, res) => {
-  res.send("Track Proxy Service Running OK | Render Node Express");
 });
 
 // 启动监听
