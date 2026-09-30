@@ -26,16 +26,22 @@ app.options("/", (req, res) => {
 
 async function queryLocalApi(trackNo) {
   try {
-    // 手动编码单个参数，不再用URLSearchParams整体编码，防止双重编码
-    const waybillStr = encodeURIComponent(trackNo);
-    const sk = encodeURIComponent(CONFIG.localApi.secretkey);
-    const fullUrl = `${CONFIG.localApi.host}${CONFIG.localApi.path}?waybillStr=${waybillStr}&secretkey=${sk}`;
-    console.log("上游完整请求地址：", fullUrl);
+    const fullUrl = `${CONFIG.localApi.host}${CONFIG.localApi.path}`;
+    console.log("上游请求地址：", fullUrl);
+    const postBody = {
+      waybillStr: trackNo,
+      secretkey: CONFIG.localApi.secretkey
+    };
+    console.log("POST提交参数：", postBody);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CONFIG.timeoutMs);
     const resp = await fetch(fullUrl, {
-      method: "GET",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(postBody),
       signal: controller.signal
     });
     clearTimeout(timer);
