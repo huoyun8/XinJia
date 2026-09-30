@@ -94,7 +94,7 @@ app.options("/", (req, res) => res.sendStatus(200));
 app.post("/", async (req, res) => {
   try {
     const inputNo = (req.body.trackNo || "").trim().toUpperCase();
-    console.log("收到查询单号：", inputNo);
+    console.log("【查询单号】", inputNo);
 
     // 参数校验
     if (!inputNo) return res.json({ code: -2, msg: "运单号不能为空", data: [] });
@@ -102,44 +102,50 @@ app.post("/", async (req, res) => {
 
     let standardResult = null;
 
-    // 1. 优先查询接口1
+    // 1. 优先查询接口1（增强异常捕获，分层容错）
     try {
       const abortCtrl = new AbortController();
       const timer = setTimeout(() => abortCtrl.abort(), CONFIG.fetchTimeout);
-      const resp = await fetch(CONFIG.api1Url + encodeURIComponent(inputNo), { signal: abortCtrl.signal });
+      const resp = await fetch(CONFIG.api1Url + encodeURIComponent(inputNo), {
+        signal: abortCtrl.signal,
+        headers: { "User-Agent": "Mozilla/5.0 Node-Fetch Service" }
+      });
       clearTimeout(timer);
-      if (resp.ok) {
-        const json = await resp.json();
-        if (json.status === 1 && Array.isArray(json.data?.shipment) && json.data.shipment.length > 0) {
-          standardResult = json.data.shipment.map(item => formatOldShipment(item, inputNo));
-          console.log("命中渠道1，已标准化包装");
-        }
+      // 非200状态码直接抛出跳过
+      if (!resp.ok) throw new Error(`API1 HTTP ${resp.status}`);
+      const json = await resp.json();
+      // 严格判断数据结构存在
+      if (json && json.status === 1 && json.data && Array.isArray(json.data.shipment) && json.data.shipment.length > 0) {
+        standardResult = json.data.shipment.map(item => formatOldShipment(item, inputNo));
+        console.log("✅ 命中渠道1，已标准化包装");
       }
     } catch (e) {
-      console.log("渠道1请求异常，自动跳过：", e.message);
+      console.log("⚠️ 渠道1请求异常，自动跳过：", e.message);
     }
     if (standardResult) return res.json({ code: 0, msg: "", data: standardResult });
 
-    // 2. 查询接口2
+    // 2. 查询接口2（同容错增强）
     try {
       const abortCtrl = new AbortController();
       const timer = setTimeout(() => abortCtrl.abort(), CONFIG.fetchTimeout);
-      const resp = await fetch(CONFIG.api2Url + encodeURIComponent(inputNo), { signal: abortCtrl.signal });
+      const resp = await fetch(CONFIG.api2Url + encodeURIComponent(inputNo), {
+        signal: abortCtrl.signal,
+        headers: { "User-Agent": "Mozilla/5.0 Node-Fetch Service" }
+      });
       clearTimeout(timer);
-      if (resp.ok) {
-        const json = await resp.json();
-        if (json.status === 1 && Array.isArray(json.data?.shipment) && json.data.shipment.length > 0) {
-          standardResult = json.data.shipment.map(item => formatOldShipment(item, inputNo));
-          console.log("命中渠道2，已标准化包装");
-        }
+      if (!resp.ok) throw new Error(`API2 HTTP ${resp.status}`);
+      const json = await resp.json();
+      if (json && json.status === 1 && json.data && Array.isArray(json.data.shipment) && json.data.shipment.length > 0) {
+        standardResult = json.data.shipment.map(item => formatOldShipment(item, inputNo));
+        console.log("✅ 命中渠道2，已标准化包装");
       }
     } catch (e) {
-      console.log("渠道2请求异常，自动跳过：", e.message);
+      console.log("⚠️ 渠道2请求异常，自动跳过：", e.message);
     }
     if (standardResult) return res.json({ code: 0, msg: "", data: standardResult });
 
-    // 3. 查询接口3 循环类型
-    console.log("渠道1、2无匹配，进入渠道3查询");
+    // 3. 查询接口3 循环类型（增加请求头、状态容错、JSON解析捕获）
+    console.log("ℹ️ 1/2无运单，进入接口3");
     const api3Cfg = CONFIG.api3;
     for (const type of api3Cfg.types) {
       try {
@@ -152,19 +158,28 @@ app.post("/", async (req, res) => {
         const resp = await fetch(api3Cfg.targetUrl, {
           method: "POST",
           signal: abortCtrl.signal,
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 Node-Fetch Service"
+          },
           body: JSON.stringify(postBody)
         });
         clearTimeout(timer);
-        if (!resp.ok) throw new Error(`HTTP状态码${resp.status}`);
-        const json = await resp.json();
+        if (!resp.ok) throw new Error(`API3 ${type} HTTP ${resp.status}`);
+        // 单独捕获JSON解析失败
+        let json;
+        try {
+          json = await resp.json();
+        } catch (parseErr) {
+          throw new Error(`JSON解析失败: ${parseErr.message}`);
+        }
         if (json.code === 0 && Array.isArray(json.data) && json.data.length > 0 && !json.data[0].errormsg) {
           standardResult = json.data.map(item => formatApi3Ship(item, inputNo));
-          console.log(`渠道3 ${type} 命中，已标准化包装`);
+          console.log(`✅ 接口3 ${type} 命中`);
           break;
         }
       } catch (e) {
-        console.log(`渠道3 ${type} 异常，切换下一类查询：`, e.message);
+        console.log(`⚠️ 接口3 ${type} 异常，切换下一类查询：`, e.message);
         continue;
       }
     }
@@ -173,12 +188,12 @@ app.post("/", async (req, res) => {
     // 全部渠道无匹配
     return res.json({ code: 3, msg: "单号错误，请核对", data: [] });
   } catch (globalErr) {
-    console.error("全局服务异常：", globalErr);
+    console.error("❌ 全局服务异常", globalErr);
     const msg = globalErr.name === "AbortError" ? "上游接口请求超时" : "中转服务异常";
     return res.json({ code: -99, msg, data: [] });
   }
 });
 
 app.get("/", (req, res) => res.send("标准化统一中转服务 | 1→2→3串行查询，输出统一结构"));
-app.all("/", (req, res) => res.json({ code: -1, msg: "仅支持POST接口", data: [] }));
-app.listen(PORT, () => console.log(`服务启动成功，端口${PORT}`));
+app.all("/", (req, res) => res.json({ code: -1, msg: "仅支持POST查询", data: [] }));
+app.listen(PORT, () => console.log("服务启动完成"));
