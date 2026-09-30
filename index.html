@@ -221,7 +221,7 @@ const CONST={
     TOAST_SHOW_TIME:1200,
     HISTORY_KEY:"track_query_history",
     MAX_HISTORY_COUNT:10,
-    PROXY_URL:"https://xinjia3.onrender.com" // 你的Render后端地址
+    PROXY_URL:"https://xinjia3.onrender.com"
 };
 let toastQueue=[],hasRefreshedQr=false;
 const showToast=msg=>{
@@ -272,7 +272,7 @@ EL.resetBtn.onclick=()=>{
     EL.serviceCard.style.display='block';
     showToast('已清空输入单号');
 };
-// 仅请求后端统一接口，无任何第三方API请求
+// 仅请求后端统一接口，无任何第三方渠道直连
 async function fetchTrackProxy(no){
     try{
         const res = await fetch(CONST.PROXY_URL,{
@@ -287,13 +287,12 @@ async function fetchTrackProxy(no){
         return {code:-99,msg:"中转服务请求超时",data:[]};
     }
 }
-// 标准化渲染函数，只读后端统一输出字段，永久无需修改
+// 标准化渲染函数，只读取后端统一输出字段，永久无需修改
 function renderShipBlock(item,idx){
     const tid = `${idx}-${item.queryNo}`;
     const sortTrack = [...item.trackList].sort((a,b)=>new Date(b.time) - new Date(a.time));
     const preview = sortTrack.slice(0,2);
     const full = sortTrack.slice(2);
-
     let transHtml = '<span>无</span>';
     if(item.transNo){
         const parts = item.transNo.split(' ');
@@ -308,7 +307,6 @@ function renderShipBlock(item,idx){
     let destLine = `<span>${item.country || "暂无"}</span>`;
     if(item.parcelCount !== null) destLine += ` <span style="margin-left:12px;color:#333;">包裹数量：${item.parcelCount}件</span>`;
     const statusClass = item.status === "已签收" ? "tag-delivered" : "tag-transit";
-
     let html = `
     <div class="ship-card" data-index="${tid}">
         <div class="ship-head">
