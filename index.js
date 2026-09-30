@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
-const { parseStringPromise } = require('xml2js');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
@@ -25,15 +24,6 @@ app.options("/", (req, res) => {
   res.sendStatus(200);
 });
 
-function cleanXml(raw) {
-  const startTag = "<AjaxResult>";
-  const idx = raw.indexOf(startTag);
-  if (idx > -1) {
-    return raw.slice(idx);
-  }
-  return raw;
-}
-
 async function queryLocalApi(trackNo) {
   try {
     const waybillStr = encodeURIComponent(trackNo);
@@ -56,48 +46,9 @@ async function queryLocalApi(trackNo) {
     const rawText = await resp.text();
     console.log("上游原始返回：", rawText);
 
-    // 判断是JSON还是XML
-    if(rawText.trim().startsWith("{")){
-      const jsonObj = JSON.parse(rawText);
-      return {success:false, msg: jsonObj.msg || "接口错误"};
-    }
-
-    const xmlText = cleanXml(rawText);
-    const xmlData = await parseStringPromise(xmlText);
-    const ajax = xmlData.AjaxResult;
-    const resCode = ajax.code[0];
-    const msg = ajax.msg[0];
-    console.log("解析结果 msg=",msg," code=",resCode);
-
-    if(resCode !== "200"){
-      throw new Error(`${msg}, code:${resCode}`);
-    }
-    const dataNode = ajax.data[0];
-    const searchNumber = Array.isArray(dataNode.searchNumber) ? dataNode.searchNumber[0] : "";
-    const orderId = Array.isArray(dataNode.orderId) ? dataNode.orderId[0] : "";
-    const waybillNumber = Array.isArray(dataNode.waybillNumber) ? dataNode.waybillNumber[0] : "";
-    const orderStatus = Array.isArray(dataNode.orderStatus) ? dataNode.orderStatus[0] : "";
-    const trackNumber = Array.isArray(dataNode.trackNumber) ? dataNode.trackNumber[0] : "";
-    const destination = Array.isArray(dataNode.destination) ? dataNode.destination[0] : "";
-    const location = Array.isArray(dataNode.location) ? dataNode.location[0] : "";
-    const trackInfo = Array.isArray(dataNode.trackInfo) ? dataNode.trackInfo[0] : "";
-    const trackDate = Array.isArray(dataNode.trackDate) ? dataNode.trackDate[0] : "";
-
-    return {
-      success:true,
-      msg:msg,
-      data:[{
-        searchNumber,
-        orderId,
-        waybillNumber,
-        orderStatus,
-        trackNumber,
-        destination,
-        location,
-        trackInfo,
-        trackDate
-      }]
-    };
+    // 只处理JSON返回，临时调试
+    const jsonObj = JSON.parse(rawText);
+    return {success:false, msg: jsonObj.msg || "接口错误"};
 
   } catch (err) {
     console.error("查询捕获异常：", err);
