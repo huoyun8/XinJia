@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<meta name="description" content="国际货运单号查询，实时追踪包裹轨迹。">
+<meta name="keywords" content="国际货运单号查询，实时追踪包裹轨迹。">
+<title>国际货运 - 在线查件系统</title>
+<style>
+*{box-sizing:border-box;font-family:"Microsoft Yahei","PingFang SC",sans-serif;-webkit-tap-highlight-color:transparent;margin:0;padding:0;}
+body{min-height:100vh;padding:15px 12px;background:#f7f7f7;}
+.container{max-width:600px;margin:0 auto;}
+.header-card,.card-wrap,.service-card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 10px rgba(0,0,0,.08);margin-bottom:8px;}
+.page-header{text-align:center;margin-bottom:8px;}
+.page-header h1{color:#222;font-size:24px;margin-bottom:4px;}
+.page-header .tip-text{font-size:28px;color:#d03030;font-weight:800;letter-spacing:2px;}
+.top-nav{margin-bottom:8px;}
+.nav-bar{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:0 20px;}
+@media(min-width:601px){.nav-bar{gap:10px;padding:0 4px;}}
+.nav-item{display:flex;align-items:center;justify-content:center;gap:4px;height:34px;background:#fff;border-radius:999px;color:#0065b8;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #eaf4ff;box-shadow:0 2px 8px rgba(0,116,204,.12),0 1px 2px rgba(0,116,204,.08);transition:.15s ease;}
+.nav-item:active{transform:scale(.97);box-shadow:0 1px 4px rgba(0,116,204,.1);}
+.nav-item svg{width:14px;height:14px;flex-shrink:0;}
+.input-pill{width:100%;height:48px;border-radius:8px;border:1px solid #0074cc;padding:0 8px 0 40px;font-size:20px;outline:none;transition:.2s;background:#fff url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%230074cc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='7'/><path d='m20 20-3.5-3.5'/></svg>") no-repeat left 14px center;background-size:18px;}
+.input-pill::placeholder{font-size:16px;color:#999;}
+.input-pill:focus{border-color:#005ba1;box-shadow:0 0 0 3px rgba(0,116,204,.18);}
+.toast-layer{position:fixed;top:40%;left:0;right:0;transform:translateY(-50%);z-index:999;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:10px;}
+.toast-item{padding:10px 18px;background:rgba(0,0,0,.65);color:#fff;border-radius:6px;font-size:15px;opacity:0;transform:translateY(20px);transition:.25s;}
+.toast-item.show{opacity:1;transform:translateY(0);}
+.btn-row{display:flex;gap:14px;margin-top:16px;}
+.btn-row button{padding:14px 0;font-size:18px;border:none;color:#fff;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:8px;cursor:pointer;transition:transform .14s ease,opacity .2s;box-shadow:0 2px 6px rgba(0,0,0,.12);}
+.btn-row button:active{transform:scale(.96);opacity:.9;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+.btn-reset{background:#ff4444;flex:0 0 90px;}
+.btn-query{background:#0074cc;flex:1;}
+.result-box{margin-top:18px;border:1px solid #ddd;background:#fff;padding:14px;min-height:120px;display:none;border-radius:6px;font-size:15px;}
+.result-box h3{margin-bottom:12px;color:#0074cc;}
+.loading-tip{text-align:center;padding:40px 0;color:#0074cc;font-size:16px;}
+.ship-card{padding:0;margin-bottom:16px;background:transparent;}
+.ship-head{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px 0;padding-top:12px;border-top:1px solid #e5e7eb;align-items:center;}
+.status-tag{padding:4px 10px;border-radius:4px;color:#fff;font-weight:bold;}
+.tag-delivered{background:#00b42a;}
+.tag-transit{background:#ff7d00;}
+.tip-faint{font-size:14px;color:#999;font-weight:normal;margin-left:6px;}
+.info-row{display:flex;align-items:center;margin:6px 0;gap:8px;}
+.info-label{color:#666;flex-shrink:0;width:64px;white-space:nowrap;}
+.text-blue{color:#0074cc;font-weight:bold;white-space:nowrap;cursor:pointer;text-decoration:underline;transition:.2s;}
+.text-blue:hover{color:#004a85;}
+.copy-no-btn{padding:3px 10px;background:#0074cc;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;flex-shrink:0;transition:0.15s;}
+.copy-no-btn:active{transform:scale(0.95);background:#005ba1;}
+.toggle-track{margin-top:8px;color:#0074cc;cursor:pointer;user-select:none;display:block;}
+.track-full{display:none;}
+.track-preview{margin-bottom:0;}
+.timeline-item{padding:8px 0 8px 12px;border-left:2px solid #dcdcdc;position:relative;margin-left:4px;}
+.track-time{font-size:13px;color:#888;margin-bottom:3px;}
+.track-desc{font-size:14px;color:#333;}
+.no-data-summary{margin-bottom:16px;padding-bottom:12px;font-size:14px;color:#888;line-height:1.6;}
+.no-data-summary strong{color:#d03030;}
+.error-msg-box{background:#fff5f5;border:1px solid #ffccc7;border-radius:8px;padding:14px;margin-bottom:12px;}
+.error-msg-title{color:#d03030;font-size:16px;font-weight:bold;margin-bottom:6px;}
+.error-msg-content{color:#595959;font-size:14px;}
+.service-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;text-align:center;width:100%;}
+.service-tag{font-size:14px;color:#005ba1;background:linear-gradient(180deg,#eaf4ff,#cfe6ff);border:1px solid #b4d4f5;font-weight:600;box-shadow:0 2px 4px rgba(0,116,204,.12),inset 0 1px 0 rgba(255,255,255,.6);transition:transform .14s ease;background .14s ease,box-shadow .14s ease;cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:center;gap:4px;border-radius:999px;padding:8px 2px;}
+.service-tag:active{transform:scale(.94);background:linear-gradient(180deg,#e1f2ff,#c4e1ff);box-shadow:0 1px 3px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.5);}
+.service-text{font-size:15px;color:#000;line-height:1.8;width:100%;margin:0;padding:0;text-wrap:pretty;}
+.service-text strong{font-weight:600;color:#222;}
+.contact-info{text-align:center;font-size:17px;font-weight:bold;color:#000;line-height:1.9;margin-bottom:10px;}
+.qrcode-box{width:180px;height:180px;border:2px dashed #999;margin:14px auto 6px;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:8px;overflow:hidden;}
+.qrcode-box img{width:98%;height:98%;object-fit:contain;}
+.qr-desc{text-align:center;font-size:14px;color:#666;margin-bottom:10px;}
+.history-modal-mask,.contact-modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:none;opacity:0;transition:.24s ease;}
+.history-modal-mask{align-items:center;justify-content:center;padding:12px;}
+.contact-modal-mask{align-items:flex-end;justify-content:center;}
+.history-modal-mask.show,.contact-modal-mask.show{display:flex;opacity:1;}
+.history-modal,.contact-modal{width:100%;max-width:520px;background:#fff;border-radius:14px;box-shadow:0 4px 30px rgba(0,0,0,.15);transform:translateY(20px);transition:.24s ease;overflow:hidden;}
+.contact-modal{border-radius:14px 14px 0 0;}
+@media(min-width:601px){.contact-modal{max-width:600px;}}
+.modal-header{padding:16px 18px;border-bottom:1px solid #eee;background:#fbfcfe;}
+.modal-top-bar{display:flex;justify-content:space-between;align-items:center;margin:0;}
+.modal-title{font-size:20px;color:#222;font-weight:600;}
+.modal-close{font-size:28px;color:#999;cursor:pointer;line-height:1;transition:.2s;}
+.modal-close:hover{color:#333;}
+.history-clear-box{width:100%;background:#ff3333;text-align:center;padding:9px 0;border-radius:8px;}
+.history-clear{display:inline-block;padding:0 24px;color:#fff;cursor:pointer;font-size:15px;transition:.2s;}
+.history-clear:active{opacity:.8;}
+.history-item{padding:9px 18px;border-bottom:1px solid #f0f2f7;transition:.2s;cursor:pointer;height:72px;display:flex;flex-direction:column;justify-content:center;}
+.history-list-wrap{max-height: calc(72px * 5);overflow-y:auto;padding:0;background:#fff;}
+.history-list-wrap::-webkit-scrollbar{width:6px;}
+.history-list-wrap::-webkit-scrollbar-track{background:#f5f7fa;border-radius:3px;}
+.history-list-wrap::-webkit-scrollbar-thumb{background:#c2c9d6;border-radius:3px;}
+.history-list-wrap::-webkit-scrollbar-thumb:hover{background:#a8b2c3;}
+.history-item:hover{background:#f7faff;}
+.history-time{font-size:13px;color:#808896;margin-bottom:3px;}
+.history-no{font-size:19px;color:#0065b8;font-weight:500;transition:.2s;}
+.history-no:hover{color:#004a85;}
+.history-empty{text-align:center;padding:40px 20px;font-size:15px;color:#888;background:#fff;height:360px;display:flex;align-items:center;justify-content:center;}
+.contact-modal-body{padding:18px;max-height:70vh;overflow-y:auto;}
+@media(max-width:360px){
+body{padding:12px 10px;}
+.page-header h1{font-size:22px;}
+.page-header .tip-text{font-size:24px;}
+.btn-row button{font-size:16px;padding:12px 0;}
+.card-wrap,.service-card,.header-card{padding:12px;margin-bottom:6px;}
+.service-tag{font-size:13px;padding:7px 2px;}
+.service-text{font-size:14px;}
+.contact-info{font-size:15px;}
+.qrcode-box{width:150px;height:150px;margin:12px auto 4px;}
+.info-label{width:64px;white-space:nowrap;}
+.modal-title{font-size:18px;}
+.history-time{font-size:11px;}
+.history-no{font-size:16px;}
+.history-empty{font-size:13px;height:320px;}
+.history-modal-mask{padding:10px;}
+.nav-item{min-width:100px;}
+.input-pill{font-size:18px;padding:0 6px 0 38px;}
+.input-pill::placeholder{font-size:15px;}
+.history-item{height:64px;padding:7px 18px;}
+.history-list-wrap{max-height: calc(64px * 5);}
+.copy-no-btn{padding:2px 7px;font-size:12px;}
+}
+</style>
+</head>
+<body>
+<div class="toast-layer" id="toastLayer"></div>
+<div class="container">
+    <div class="header-card">
+        <div class="page-header">
+            <h1>寄欧洲，国际货运</h1>
+            <div class="tip-text">查件系统</div>
+        </div>
+        <div class="top-nav">
+            <div class="nav-bar">
+                <div class="nav-item" id="historyBtn">
+                    <svg viewBox="0 0 24 24" fill="none">
+                    <path d="M12 7V12L15 14" stroke="#0065b8" stroke-width="1.8" stroke-linecap="round"/>
+                    <circle cx="12" cy="12" r="9" stroke="#0065b8" stroke-width="1.8"/>
+                    </svg>历史记录
+                </div>
+                <div class="nav-item" id="contactJumpBtn">
+                    <svg viewBox="0 0 24 24" fill="none">
+                    <path d="M7 5H17V7H7V5ZM7 11H17V13H7V11ZM7 17H13V19H7V17Z" stroke="#0065b8" stroke-width="1.8"/>
+                    </svg>联系我们
+                </div>
+            </div>
+        </div>
+        <input class="input-pill" id="orderInput" maxlength="95" placeholder="请输入单号，如：1Z0R6D896821448620">
+        <div class="btn-row">
+            <button class="btn-reset" id="resetBtn"><span>重置</span></button>
+            <button class="btn-query" id="queryBtn"><span>查询</span></button>
+        </div>
+        <div class="result-box" id="resultBox"></div>
+    </div>
+    <div class="service-card" id="serviceCard">
+        <div class="service-row">
+            <span class="service-tag">⏱️ 时效稳定</span>
+            <span class="service-tag">🛒 网购代收</span>
+            <span class="service-tag">📷 拍照核对</span>
+        </div>
+        <p class="service-text"><strong>可寄：</strong>衣服裤子、被单被套、日用百货、零食干货、家乡土特产、药品化妆品、家用电器等。</p>
+    </div>
+    <div class="card-wrap" id="contactCard">
+        <div class="contact-info">
+            <div>📍 地址：青田县 水南 江南大道58号</div>
+            <div>（爱丽斯特公交站 天桥旁）</div>
+            <div>📞 电话：<a href="tel:13059665525">130 5966 5525</a></div>
+        </div>
+        <div class="qrcode-box"><img id="qrImg" src="qrcode.png" alt="微信二维码"></div>
+        <div class="qr-desc">扫码添加微信，咨询发货、查件、运价</div>
+    </div>
+</div>
+<div class="history-modal-mask" id="historyMask">
+    <div class="history-modal">
+        <div class="modal-header">
+            <div class="modal-top-bar">
+                <div class="modal-title">查询历史记录</div>
+                <div class="modal-close" id="closeHistory">×</div>
+            </div>
+            <div class="history-clear-box">
+                <span class="history-clear" id="clearAllHistory">清空历史记录</span>
+            </div>
+        </div>
+        <div class="history-list-wrap" id="historyListWrap"></div>
+    </div>
+</div>
+<div class="contact-modal-mask" id="contactMask">
+    <div class="contact-modal">
+        <div class="modal-header">
+            <div class="modal-top-bar">
+                <div class="modal-title">联系我们</div>
+                <div class="modal-close" id="closeContact">×</div>
+            </div>
+        </div>
+        <div class="contact-modal-body">
+            <div class="contact-info">
+                <div>📍 地址：青田县 水南 江南大道58号</div>
+                <div>（爱丽斯特公交站 天桥旁）</div>
+                <div>📞 电话：<a href="tel:13059665525">130 5966 5525</a></div>
+            </div>
+            <div class="qrcode-box"><img id="modalQrImg" src="qrcode.png" alt="微信二维码"></div>
+            <div class="qr-desc">扫码添加微信，咨询发货、查件、运价</div>
+        </div>
+    </div>
+</div>
+<script>
+const EL={
+    orderInput:document.getElementById('orderInput'),
+    queryBtn:document.getElementById('queryBtn'),
+    resetBtn:document.getElementById('resetBtn'),
+    resultBox:document.getElementById('resultBox'),
+    toastLayer:document.getElementById('toastLayer'),
+    contactJumpBtn:document.getElementById('contactJumpBtn'),
+    historyMask:document.getElementById('historyMask'),
+    historyListWrap:document.getElementById('historyListWrap'),
+    historyBtn:document.getElementById('historyBtn'),
+    closeHistory:document.getElementById('closeHistory'),
+    clearAllHistory:document.getElementById('clearAllHistory'),
+    serviceCard:document.getElementById('serviceCard'),
+    contactMask:document.getElementById('contactMask'),
+    closeContact:document.getElementById('closeContact'),
+    modalQrImg:document.getElementById('modalQrImg'),
+    qrImg:document.getElementById('qrImg')
+};
+const CONST={
+    MAX_ROWS:10,
+    MAX_TOAST_COUNT:5,
+    TOAST_SHOW_TIME:1200,
+    HISTORY_KEY:"track_query_history",
+    MAX_HISTORY_COUNT:10,
+    API_ENCRYPT:["aHR0cHM6Ly90cmFja2luZy5uZXh0c2xzLmNvbS9yZXN0L3RyYWNlL3RyYWNraW5nL2xpc3RzP2FwcD02NTZkOTJmNTczZjA0MjdlOGU1Y2E1MzYmbnVtYmVyPQ==","aHR0cHM6Ly90cmFja2luZy5uZXh0c2xzLmNvbS9yZXN0L3RyYWNlL3RyYWNraW5nL2xpc3RzP2FwcD02NzIwNGU1YzczZjA0MjQ2NDg2OTI0Y2ImbnVtYmVyPQ=="],
+    PROXY_API:"https://xinjia.onrender.com"
+};
+const countryMap = {
+  "AT": "奥地利","BE": "比利时","BG": "保加利亚","HR": "克罗地亚","CY": "塞浦路斯",
+  "CZ": "捷克","DK": "丹麦","EE": "爱沙尼亚","FI": "芬兰","FR": "法国",
+  "DE": "德国","GR": "希腊","HU": "匈牙利","IE": "爱尔兰","IT": "意大利",
+  "LV": "拉脱维亚","LT": "立陶宛","LU": "卢森堡","MT": "马耳他","NL": "荷兰",
+  "PL": "波兰","PT": "葡萄牙","RO": "罗马尼亚","SK": "斯洛伐克","SI": "斯洛文尼亚",
+  "ES": "西班牙","SE": "瑞典","US": "美国"
+};
+let toastQueue=[],hasRefreshedQr=false;
+const showToast=msg=>{
+    if(toastQueue.length>=CONST.MAX_TOAST_COUNT){
+        const first=toastQueue.shift();
+        first.remove();
+    }
+    const t=Object.assign(document.createElement('div'),{className:'toast-item',innerText:msg});
+    EL.toastLayer.appendChild(t);
+    toastQueue.push(t);
+    t.classList.add('show');
+    setTimeout(()=>{
+        t.classList.remove('show');
+        setTimeout(()=>{
+            const idx=toastQueue.indexOf(t);
+            if(idx>-1)toastQueue.splice(idx,1);
+            t.remove();
+        },250);
+    },CONST.TOAST_SHOW_TIME);
+};
+const copyTransNo=async fullText=>{
+    const pureNo = fullText.split(' ').pop();
+    await navigator.clipboard.writeText(pureNo);
+    showToast("转运单号复制成功");
+};
+window.fillAndSearch=num=>{
+    EL.orderInput.value=num;
+    EL.serviceCard.style.display='none';
+    EL.resultBox.style.display='block';
+    EL.queryBtn.click();
+};
+EL.contactJumpBtn.onclick=()=>{
+    const base=EL.modalQrImg.src.split('?')[0];
+    if(!hasRefreshedQr){
+        EL.modalQrImg.src='';
+        setTimeout(()=>EL.modalQrImg.src=`${base}?t=${Date.now()}`,0);
+        hasRefreshedQr=true;
+    }
+    EL.contactMask.classList.add('show');
+};
+EL.closeContact.onclick=()=>EL.contactMask.classList.remove('show');
+EL.contactMask.onclick=e=>e.target===EL.contactMask&&EL.contactMask.classList.remove('show');
+EL.closeHistory.onclick=()=>EL.historyMask.classList.remove('show');
+EL.historyMask.onclick=e=>e.target===EL.historyMask&&EL.historyMask.classList.remove('show');
+EL.resetBtn.onclick=()=>{
+    EL.orderInput.value='';
+    EL.resultBox.style.display='none';
+    EL.serviceCard.style.display='block';
+    showToast('已清空输入单号');
+};
+const getApiList=()=>CONST.API_ENCRYPT.map(s=>atob(s));
+const getSingleTrackOld=async num=>{
+    const apiList=getApiList();
+    for(const api of apiList){
+        try{
+            const res=await fetch(api+encodeURIComponent(num));
+            if(!res.ok)continue;
+            const json=await res.json();
+            if(json?.status===1&&json?.data?.shipment) return Array.isArray(json.data.shipment)?json.data.shipment:[json.data.shipment];
+        }catch{}
+    }
+    return null;
+};
+async function getSCFTrack(no){
+    try{
+        const res = await fetch(CONST.PROXY_API,{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({trackNo: no})
+        })
+        const json = await res.json();
+        console.log("中转返回完整结果：",json);
+        if(json.code === -99){
+            return {error:"中转服务异常："+json.error};
+        }
+        if(json.code !== 0) return {error:"接口查询失败"};
+        if(!json.data || json.data.length === 0) return {error:"无数据"};
+        const item = json.data[0];
+        if(item.errormsg) return {error:item.errormsg};
+        return {type:"scf",data:item,inputNo:no};
+    }catch(err){
+        console.error("中转查询异常",err);
+        return {error:"网络请求失败："+err.message};
+    }
+}
+function renderShipItem(source,idx,queryNo){
+    let inputNo,trackList,countryText,parcelCount=null,transNo="";
+    let trackTimeKey,trackDescKey,statusText,statusClass;
+    if(source.type === "scf"){
+        const d = source.data;
+        inputNo = source.inputNo;
+        transNo = d.tracknumber || d.waybillnumber || "";
+        trackList = d.trackItems || [];
+        trackTimeKey = "trackdate";
+        trackDescKey = "info";
+        const cc = (d.countrycode || "").toUpperCase();
+        countryText = countryMap[cc] || d.countrycode || "暂无";
+        parcelCount = null;
+        statusText = d.orderstatusName || d.orderstatus || "运输中";
+        statusClass = (d.orderstatus === "Sign" || d.orderstatusName === "已签收") ? "tag-delivered" : "tag-transit";
+    }else{
+        const d = source;
+        inputNo = queryNo;
+        transNo = d.outer_carrier_tracking_number || "";
+        trackList = d.traces || [];
+        trackTimeKey = "time";
+        trackDescKey = "info";
+        countryText = d.country || "";
+        if(d.postcode){
+            countryText += " " + d.postcode;
+        }
+        parcelCount = d.parcel_count;
+        statusText = d.status === 'delivered' ? '已签收' : '运输中';
+        statusClass = d.status === 'delivered' ? 'tag-delivered' : 'tag-transit';
+    }
+    const sort=[...trackList].sort((a,b)=>new Date(b[trackTimeKey]) - new Date(a[trackTimeKey]));
+    const tid=`${idx}-${queryNo}`;
+    const previewList=sort.slice(0,2);
+    const fullList=sort.slice(2);
+    let transHtml = '<span>无</span>';
+    if(transNo){
+        const parts = transNo.split(' ');
+        if(parts.length > 1){
+            const carrierText = parts.slice(0,-1).join(' ');
+            const pureNum = parts.pop();
+            transHtml = `
+                <span>${carrierText} </span>
+                <span class="text-blue" onclick="fillAndSearch('${pureNum}')">${pureNum}</span>
+            `;
+        }else{
+            transHtml = `<span class="text-blue" onclick="fillAndSearch('${transNo}')">${transNo}</span>`;
+        }
+    }
+    let destLine = `<span>${countryText}</span>`;
+    if(parcelCount !== null && parcelCount !== undefined){
+        destLine += ` <span style="margin-left:12px;color:#333;">包裹数量：${parcelCount}件</span>`;
+    }
+    let html=`
+    <div class="ship-card" data-index="${tid}">
+        <div class="ship-head">
+            <span class="status-tag ${statusClass}">${statusText}</span>
+            <span class="tip-faint">如轨迹异常，尝试再次查询</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">查询单号：</span>
+            <span class="text-blue" onclick="fillAndSearch('${inputNo.trim()}')">${inputNo.trim()}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">转运单号：</span>
+            ${transHtml}
+            ${transNo ? `<button class="copy-no-btn" onclick="copyTransNo('${transNo}')">复制</button>` : ''}
+        </div>
+        <div class="info-row">
+            <span class="info-label">目的地：</span>
+            ${destLine}
+        </div>`;
+    html += `<div class="track-preview">`;
+    previewList.forEach(item=>{
+        html += `<div class="timeline-item">
+            <div class="track-time">${item[trackTimeKey] || ""}</div>
+            <div class="track-desc">${item[trackDescKey] || ""}${item.location ? ' — ' + item.location : ''}</div>
+        </div>`;
+    })
+    html += `</div>`;
+    if(fullList.length>0){
+        html += `<div class="track-wrap track-full" id="track-${tid}">`;
+        fullList.forEach(item=>{
+            html += `<div class="timeline-item">
+                <div class="track-time">${item[trackTimeKey] || ""}</div>
+                <div class="track-desc">${item[trackDescKey] || ""}${item.location ? ' — ' + item.location : ''}</div>
+            </div>`;
+        })
+        html += `</div>
+        <div class="toggle-track" data-target="${tid}">▼ 展开完整物流轨迹</div>`;
+    }
+    if(sort.length === 0){
+        html += `<div style="margin-top:8px;color:#888;font-size:14px;">暂未获取到物流轨迹</div>`;
+    }
+    if(source.type === "scf" && source.data.subOrderList && source.data.subOrderList.length > 0 && source.data.subOrderTrackItems){
+        html += `<div style="margin-top:16px;padding-top:12px;border-top:1px dashed #e5e7eb;">`;
+        html += `<div style="font-size:16px;font-weight:bold;color:#333;margin-bottom:8px;">子单号轨迹</div>`;
+        source.data.subOrderList.forEach(subNo=>{
+            const subTrackList = source.data.subOrderTrackItems[subNo];
+            if(subTrackList && Array.isArray(subTrackList) && subTrackList.length > 0){
+                const subSort = [...subTrackList].sort((a,b)=>new Date(b.trackdate) - new Date(a.trackdate));
+                html += `<div style="margin-bottom:12px;">`;
+                html += `<div style="font-size:14px;color:#0074cc;font-weight:bold;margin-bottom:6px;">子单号：${subNo}</div>`;
+                subSort.slice(0,2).forEach(t=>{
+                    html += `<div class="timeline-item">
+                        <div class="track-time">${t.trackdate || ""}</div>
+                        <div class="track-desc">${t.info || ""}${t.location ? ' — ' + t.location : ''}</div>
+                    </div>`;
+                });
+                html += `</div>`;
+            }
+        });
+        html += `</div>`;
+    }
+    html += `</div>`;
+    return html;
+}
+document.addEventListener('click',e=>{
+    const btn=e.target.closest('.toggle-track');
+    if(!btn)return;
+    const tid=btn.dataset.target;
+    const fullDom=document.getElementById(`track-${tid}`);
+    const isOpen=fullDom.style.display==='block';
+    fullDom.style.display = isOpen ? "none" : "block";
+    btn.innerText = isOpen ? '▼ 展开完整物流轨迹' : '▲ 收起物流轨迹';
+});
+EL.queryBtn.onclick=async ()=>{
+    const rawVal=EL.orderInput.value.trim();
+    if(!rawVal){
+        showToast('请输入单号!');
+        return;
+    }
+    let filterText = rawVal.replace(/[\u4e00-\u9fa5]/g, '');
+    filterText = filterText.replace(/[^\da-zA-Z]+/g, '\n');
+    const rawList = filterText.split('\n').map(v=>v.trim().toUpperCase()).filter(v=>v);
+    for(const item of rawList){
+        const isAlphaNum = /^[A-Za-z0-9]+$/.test(item);
+        const len = item.length;
+        if(!isAlphaNum || len < 5 || len > 18){
+            showToast('单号长度需5-18位，请检查');
+            return;
+        }
+    }
+    const unique = [...new Set(rawList)];
+    if(unique.length > CONST.MAX_ROWS){
+        showToast(`单次最多查询${CONST.MAX_ROWS}个单号`);
+        return;
+    }
+    EL.serviceCard.style.display='none';
+    EL.resultBox.style.display='block';
+    EL.resultBox.innerHTML=`<div class="loading-tip">🔄 开始查询，共${unique.length}个单号...</div>`;
+    let allRenderHtml = '';
+    let globalHasValid = false;
+    let fullFailList = [];
+    try{
+        for(let idx=0; idx<unique.length; idx++){
+            const currNo = unique[idx];
+            EL.resultBox.innerHTML=`<div class="loading-tip">🔄 正在查询第${idx+1}/${unique.length}个：${currNo}</div>`;
+            // 并行请求1/2旧接口、3中转接口
+            const [oldRes,scfRes] = await Promise.all([getSingleTrackOld(currNo), getSCFTrack(currNo)]);
+            let oldHasData = !!(oldRes && oldRes.length > 0);
+            let scfHasData = !!(scfRes && scfRes.type === "scf");
+            const anyChannelValid = oldHasData || scfHasData;
+            let singleBlockHtml = '';
+            // 渲染旧接口1/2数据
+            if(oldHasData){
+                oldRes.forEach((item,i)=>{
+                    singleBlockHtml += renderShipItem(item, idx*10 + i, currNo);
+                });
+            }
+            // 渲染中转3接口数据
+            if(scfHasData){
+                singleBlockHtml += renderShipItem(scfRes, idx*10 + 50, currNo);
+            }
+            if(anyChannelValid){
+                allRenderHtml += singleBlockHtml;
+                globalHasValid = true;
+                addHistoryRecord(currNo);
+            }else{
+                // 两个渠道全部无数据，才加入失败列表
+                let failMsg = "";
+                if(scfRes?.error) failMsg = scfRes.error;
+                fullFailList.push({no:currNo, msg:failMsg || "所有渠道未匹配到运单"});
+            }
+        }
+        let resTitle = `<h3>查询结果（共${unique.length}个单号）</h3>`;
+        if(rawList.length !== unique.length){
+            resTitle = `<h3>查询结果（输入${rawList.length}个，去重后${unique.length}个单号）</h3>`;
+        }
+        // 仅展示全部渠道失败的单号提示
+        fullFailList.forEach(item=>{
+            resTitle += `<div class="error-msg-box">
+                <div class="error-msg-title">单号 ${item.no} 查询失败</div>
+                <div class="error-msg-content">${item.msg}</div>
+            </div>`;
+        });
+        if(globalHasValid){
+            EL.resultBox.innerHTML = resTitle + allRenderHtml;
+        }else{
+            EL.resultBox.innerHTML = resTitle;
+        }
+    }catch(err){
+        EL.resultBox.innerHTML=`<div style="padding:20px;color:red;">全局查询异常：${err.message}</div>`;
+    }
+};
+const getHistory=()=>JSON.parse(localStorage.getItem(CONST.HISTORY_KEY)||'[]');
+const saveHistory=list=>{
+    if(list.length>CONST.MAX_HISTORY_COUNT)list.length=CONST.MAX_HISTORY_COUNT;
+    localStorage.setItem(CONST.HISTORY_KEY,JSON.stringify(list));
+};
+const getNowTime=()=>{
+    const d=new Date();
+    return `${d.getMonth()+1}月${d.getDate()}日 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+};
+const addHistoryRecord=no=>{
+    const list=getHistory(),time=getNowTime();
+    const idx=list.findIndex(item=>item.no===no);
+    if(idx>-1)list.splice(idx,1);
+    list.unshift({no,time});
+    saveHistory(list);
+};
+const renderHistory=()=>{
+    const list=getHistory();
+    if(!list.length)return EL.historyListWrap.innerHTML=`<div class="history-empty">暂无历史记录</div>`;
+    EL.historyListWrap.innerHTML=list.map(item=>`
+        <div class="history-item" data-no="${item.no}">
+            <div class="history-time">最近查询：${item.time}</div>
+            <div class="history-no">${item.no}</div>
+        </div>
+    `).join('');
+    document.querySelectorAll('.history-item').forEach(row=>{
+        row.onclick=function(){
+            EL.orderInput.value=this.dataset.no;
+            EL.historyMask.classList.remove('show');
+            EL.serviceCard.style.display='none';
+            EL.resultBox.style.display='block';
+            EL.queryBtn.click();
+        }
+    });
+};
+EL.historyBtn.onclick=()=>{
+    const list=getHistory();
+    if(!list.length)return showToast("暂无历史记录");
+    renderHistory();
+    EL.historyMask.classList.add('show');
+};
+EL.clearAllHistory.onclick=()=>{
+    localStorage.removeItem(CONST.HISTORY_KEY);
+    renderHistory();
+    EL.historyMask.classList.remove('show');
+    showToast('已清空记录');
+};
+EL.orderInput.addEventListener("keydown",e=>{
+    if(e.key==="Enter")EL.queryBtn.click();
+})
+</script>
+</body>
+</html>
