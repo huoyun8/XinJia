@@ -4,8 +4,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.18.2",
-    "node-fetch": "^2.7.0",
-    "timeout-signal": "^1.1.0"
+    "node-fetch": "^2.7.0"
   },
   "scripts": {
     "start": "node index.js"
