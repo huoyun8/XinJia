@@ -20,6 +20,15 @@ const NEXT_SLS_APIS = [
   "https://tracking.nextsls.com/rest/trace/tracking/lists?app=67204e5c73f04246486924cb&number="
 ];
 
+const COUNTRY_NAMES = {
+  AT:"奥地利",BE:"比利时",BG:"保加利亚",HR:"克罗地亚",CY:"塞浦路斯",
+  CZ:"捷克",DK:"丹麦",EE:"爱沙尼亚",FI:"芬兰",FR:"法国",
+  DE:"德国",GR:"希腊",HU:"匈牙利",IE:"爱尔兰",IT:"意大利",
+  LV:"拉脱维亚",LT:"立陶宛",LU:"卢森堡",MT:"马耳他",NL:"荷兰",
+  PL:"波兰",PT:"葡萄牙",RO:"罗马尼亚",SK:"斯洛伐克",SI:"斯洛文尼亚",
+  ES:"西班牙",SE:"瑞典",US:"美国"
+};
+
 app.options("/track", (req, res) => res.sendStatus(200));
 
 function normNextsls(json, inputNo, channel) {
@@ -59,7 +68,7 @@ function normScf(result, inputNo) {
       inputNo,
       carrier: "",
       transNo: d.waybillnumber || d.tracknumber || "",
-      country: d.countrycode || "",
+      country: COUNTRY_NAMES[(d.countrycode || "").toUpperCase()] || d.countrycode || "",
       postcode: d.postcode || "",
       status: delivered ? "delivered" : "transit",
       statusText: d.orderstatusName || d.orderstatus || "运输中",
@@ -113,3 +122,4 @@ app.post("/track", async (req, res) => {
 app.get("/", (req, res) => res.send("ok"));
 
 app.listen(PORT, () => console.log(`服务启动成功，端口:${PORT}`));
+//（注：内容由AI生成）
