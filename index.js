@@ -29,13 +29,13 @@ app.options("/", (req, res) => res.sendStatus(200));
 app.post("/", async (req, res) => {
   try {
     const inputNo = (req.body.trackNo || "").trim().toUpperCase();
-    console.log("收到查询单号：", inputNo);
+    console.log("查询单号：", inputNo);
 
     if (!inputNo) return res.json({ code: -2, msg: "运单号不能为空" });
     if (inputNo.length < 5 || inputNo.length > 18) return res.json({ code: -2, msg: "单号长度需5-18位，请检查" });
 
-    // ========== 接口1 串行查询 + 强制校验轨迹非空 ==========
-    let api1ValidFormat = null;
+    // ===================== 接口1 校验+格式化 =====================
+    let api1Data = null;
     try {
       const abortCtrl = new AbortController();
       const timer = setTimeout(() => abortCtrl.abort(), CONFIG.fetchTimeout);
@@ -43,32 +43,31 @@ app.post("/", async (req, res) => {
       clearTimeout(timer);
       if (resp.ok) {
         const json = await resp.json();
-        // 必须同时满足：有运单 + 轨迹数组存在 + 轨迹长度大于0
+        // 强制校验：运单存在 + traces轨迹数组非空
         if (
           json.status === 1
           && json.data?.shipment?.length > 0
-          && json.data.shipment[0].traces
           && Array.isArray(json.data.shipment[0].traces)
           && json.data.shipment[0].traces.length > 0
         ) {
-          // 统一格式化，和接口3输出字段完全对齐 trackList / transNo
-          api1ValidFormat = json.data.shipment.map(item => ({
+          api1Data = json.data.shipment.map(item => ({
             inputNo: inputNo,
             transNo: item.outer_carrier_tracking_number || "",
-            trackList: item.traces,
+            trackList: item.traces, // 统一字段 trackList 给前端读取
             country: item.country || "",
             parcelCount: item.parcel_count || null,
             status: item.status || "transit"
           }));
+          console.log("【接口1】命中有效带轨迹运单");
         }
       }
     } catch (e) {
-      console.log("【接口1】异常丢弃：", e.message);
+      console.log("【接口1】异常跳过：", e.message);
     }
-    if (api1ValidFormat) return res.json({ code: 0, data: api1ValidFormat });
+    if (api1Data) return res.json({ code: 0, data: api1Data });
 
-    // ========== 接口2 串行查询 + 强制校验轨迹非空（你AJ263012这条存在这里） ==========
-    let api2ValidFormat = null;
+    // ===================== 接口2 校验+格式化（你有数据的渠道） =====================
+    let api2Data = null;
     try {
       const abortCtrl = new AbortController();
       const timer = setTimeout(() => abortCtrl.abort(), CONFIG.fetchTimeout);
@@ -76,47 +75,43 @@ app.post("/", async (req, res) => {
       clearTimeout(timer);
       if (resp.ok) {
         const json = await resp.json();
-        // 核心校验：运单存在 + 轨迹数组不为空
+        // 核心校验：traces 必须有轨迹数据才判定有效
         if (
           json.status === 1
           && json.data?.shipment?.length > 0
-          && json.data.shipment[0].traces
           && Array.isArray(json.data.shipment[0].traces)
           && json.data.shipment[0].traces.length > 0
         ) {
-          api2ValidFormat = json.data.shipment.map(item => ({
+          api2Data = json.data.shipment.map(item => ({
             inputNo: inputNo,
             transNo: item.outer_carrier_tracking_number || "",
-            trackList: item.traces,
+            trackList: item.traces, // 和3号接口输出字段完全一致
             country: item.country || "",
             parcelCount: item.parcel_count || null,
             status: item.status || "transit"
           }));
+          console.log("【接口2】命中有效带轨迹运单");
         }
       }
     } catch (e) {
-      console.log("【接口2】异常丢弃：", e.message);
+      console.log("【接口2】异常跳过：", e.message);
     }
-    // 接口2查到带轨迹数据，直接返回标准化结构给前端
-    if (api2ValidFormat) return res.json({ code: 0, data: api2ValidFormat });
+    if (api2Data) return res.json({ code: 0, data: api2Data });
 
-    // ========== 接口3 内网渠道查询 ==========
-    console.log("接口1、2无带有效轨迹运单，进入接口3查询");
+    // ===================== 接口3 原有逻辑不变 =====================
+    console.log("1/2无有效数据，查询接口3");
     const api3Cfg = CONFIG.api3;
-    let api3FormatData = null;
+    let api3Data = null;
     for (const type of api3Cfg.types) {
       try {
-        const reqBody = {
-          authorization: { code: api3Cfg.clientCode, token: api3Cfg.apiToken },
-          datas: { [type]: [inputNo] }
-        };
+        const body = { authorization: { code: api3Cfg.clientCode, token: api3Cfg.apiToken }, datas: { [type]: [inputNo] } };
         const abortCtrl = new AbortController();
         const timer = setTimeout(() => abortCtrl.abort(), api3Cfg.timeoutMs);
         const resp = await fetch(api3Cfg.targetUrl, {
           method: "POST",
           signal: abortCtrl.signal,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(reqBody)
+          body: JSON.stringify(body)
         });
         clearTimeout(timer);
         if (!resp.ok) throw new Error(`HTTP${resp.status}`);
@@ -126,11 +121,10 @@ app.post("/", async (req, res) => {
           json.code === 0
           && json.data?.length > 0
           && !json.data[0].errormsg
-          && json.data[0].trackItems
           && Array.isArray(json.data[0].trackItems)
           && json.data[0].trackItems.length > 0
         ) {
-          api3FormatData = [{
+          api3Data = [{
             inputNo: inputNo,
             transNo: json.data[0].tracknumber || "",
             trackList: json.data[0].trackItems,
@@ -141,21 +135,21 @@ app.post("/", async (req, res) => {
           break;
         }
       } catch (e) {
-        console.log(`【接口3-${type}】异常丢弃：`, e.message);
+        console.log(`【接口3-${type}】异常：`, e.message);
         continue;
       }
     }
-    if (api3FormatData) return res.json({ code: 0, data: api3FormatData });
+    if (api3Data) return res.json({ code: 0, data: api3Data });
 
-    // 1/2/3 全部渠道都没有「带物流轨迹」的运单
+    // 全部渠道都没有「带轨迹」的运单，返回错误提示
     return res.json({ code: 3, msg: "单号错误，请核对" });
   } catch (globalErr) {
-    console.error("中转服务全局异常：", globalErr);
+    console.error("全局服务异常：", globalErr);
     const msg = globalErr.name === "AbortError" ? "上游接口请求超时" : "中转服务异常";
     return res.json({ code: -99, msg, error: globalErr.message });
   }
 });
 
-app.get("/", (req, res) => res.send("修复版：接口1/2强制校验轨迹，统一输出trackList字段"));
+app.get("/", (req, res) => res.send("修复版：1/2强制校验traces，统一输出trackList"));
 app.all("/", (req, res) => res.json({ code: -1, msg: "仅支持POST查询请求" }));
-app.listen(PORT, () => console.log(`服务启动完成，监听端口${PORT}`));
+app.listen(PORT, () => console.log(`服务启动完成`));
