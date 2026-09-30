@@ -43,6 +43,7 @@ app.post("/", async (req, res) => {
       clearTimeout(timer);
       if (resp.ok) {
         const json = await resp.json();
+        console.log("【接口1原始返回】", JSON.stringify(json,null,2));
         // 双重校验：存在运单 + 轨迹数组非空
         if (
           json.status === 1
@@ -53,9 +54,9 @@ app.post("/", async (req, res) => {
           api1Format = json.data.shipment.map(item => ({
             inputNo: inputNo,
             transNo: item.outer_carrier_tracking_number || "",
-            trackList: item.traces, // 统一字段 前端只读trackList
+            trackList: item.traces || [],
             country: item.country || "",
-            parcelCount: item.parcel_count || null,
+            parcelCount: item.parcel_count ?? 0,
             status: item.status || "transit"
           }));
           console.log("【命中接口1有效数据】", inputNo);
@@ -66,7 +67,7 @@ app.post("/", async (req, res) => {
     }
     if (api1Format) return res.json({ code: 0, data: api1Format });
 
-    // ===================== 接口2 串行查询（你有数据的渠道） =====================
+    // ===================== 接口2 串行查询 =====================
     let api2Format = null;
     try {
       const abortCtrl = new AbortController();
@@ -75,6 +76,7 @@ app.post("/", async (req, res) => {
       clearTimeout(timer);
       if (resp.ok) {
         const json = await resp.json();
+        console.log("【接口2原始返回】", JSON.stringify(json,null,2));
         if (
           json.status === 1
           && json.data?.shipment?.length > 0
@@ -84,9 +86,9 @@ app.post("/", async (req, res) => {
           api2Format = json.data.shipment.map(item => ({
             inputNo: inputNo,
             transNo: item.outer_carrier_tracking_number || "",
-            trackList: item.traces,
+            trackList: item.traces || [],
             country: item.country || "",
-            parcelCount: item.parcel_count || null,
+            parcelCount: item.parcel_count ?? 0,
             status: item.status || "transit"
           }));
           console.log("【命中接口2有效数据】", inputNo);
@@ -113,9 +115,10 @@ app.post("/", async (req, res) => {
           body: JSON.stringify(body)
         });
         clearTimeout(timer);
+        console.log(`【接口3-${type} HTTP状态】`,resp.status);
         if (!resp.ok) throw new Error(`HTTP${resp.status}`);
         const json = await resp.json();
-        console.log(`【接口3-${type}返回】`, json);
+        console.log(`【接口3-${type}返回】`, JSON.stringify(json,null,2));
         if (
           json.code === 0
           && json.data?.length > 0
@@ -126,7 +129,7 @@ app.post("/", async (req, res) => {
           api3Format = [{
             inputNo: inputNo,
             transNo: json.data[0].tracknumber || "",
-            trackList: json.data[0].trackItems,
+            trackList: json.data[0].trackItems || [],
             country: json.data[0].countrycode || "",
             parcelCount: null,
             status: json.data[0].orderstatus || "transit"
@@ -149,6 +152,6 @@ app.post("/", async (req, res) => {
   }
 });
 
-app.get("/", (req, res) => res.send("修复版：1/2/3后端串行，强制校验轨迹，统一输出trackList"));
+app.get("/", (req, res) => res.send("修复版：打印原始返回，parcelCount兜底，方便调试"));
 app.all("/", (req, res) => res.json({ code: -1, msg: "仅支持POST查询请求" }));
 app.listen(PORT, () => console.log(`服务启动完成，端口${PORT}`));
