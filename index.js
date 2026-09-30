@@ -34,7 +34,7 @@ app.post("/", async (req, res) => {
     if (!inputNo) return res.json({ code: -2, msg: "运单号不能为空" });
     if (inputNo.length < 5 || inputNo.length > 18) return res.json({ code: -2, msg: "单号长度需5-18位，请检查" });
 
-    // ===================== 接口1 串行查询 =====================
+    // ===================== 接口1 =====================
     let api1Format = null;
     try {
       const abortCtrl = new AbortController();
@@ -44,22 +44,24 @@ app.post("/", async (req, res) => {
       if (resp.ok) {
         const json = await resp.json();
         console.log("【接口1原始返回】", JSON.stringify(json,null,2));
-        // 双重校验：存在运单 + 轨迹数组非空
-        if (
-          json.status === 1
-          && json.data?.shipment?.length > 0
-          && Array.isArray(json.data.shipment[0].traces)
-          && json.data.shipment[0].traces.length > 0
-        ) {
-          api1Format = json.data.shipment.map(item => ({
-            inputNo: inputNo,
-            transNo: item.outer_carrier_tracking_number || "",
-            trackList: item.traces || [],
-            country: item.country || "",
-            parcelCount: item.parcel_count ?? 0,
-            status: item.status || "transit"
-          }));
-          console.log("【命中接口1有效数据】", inputNo);
+        // 强校验：shipment存在，并且traces是数组，并且数组长度>0
+        const shipmentList = json.data?.shipment;
+        if (json.status === 1 && Array.isArray(shipmentList) && shipmentList.length > 0) {
+          const firstShip = shipmentList[0];
+          const traceArr = firstShip.traces;
+          if (Array.isArray(traceArr) && traceArr.length > 0) {
+            api1Format = shipmentList.map(item => ({
+              inputNo: inputNo,
+              transNo: item.outer_carrier_tracking_number || "",
+              trackList: item.traces,
+              country: item.country || "",
+              parcelCount: item.parcel_count ?? null,
+              status: item.status || "transit"
+            }));
+            console.log("✅ 命中接口1（带有效轨迹）", inputNo);
+          }else{
+            console.log("⚠️ 接口1查到运单，但轨迹为空，跳过，继续查询下一个接口");
+          }
         }
       }
     } catch (e) {
@@ -67,7 +69,7 @@ app.post("/", async (req, res) => {
     }
     if (api1Format) return res.json({ code: 0, data: api1Format });
 
-    // ===================== 接口2 串行查询 =====================
+    // ===================== 接口2 =====================
     let api2Format = null;
     try {
       const abortCtrl = new AbortController();
@@ -77,21 +79,23 @@ app.post("/", async (req, res) => {
       if (resp.ok) {
         const json = await resp.json();
         console.log("【接口2原始返回】", JSON.stringify(json,null,2));
-        if (
-          json.status === 1
-          && json.data?.shipment?.length > 0
-          && Array.isArray(json.data.shipment[0].traces)
-          && json.data.shipment[0].traces.length > 0
-        ) {
-          api2Format = json.data.shipment.map(item => ({
-            inputNo: inputNo,
-            transNo: item.outer_carrier_tracking_number || "",
-            trackList: item.traces || [],
-            country: item.country || "",
-            parcelCount: item.parcel_count ?? 0,
-            status: item.status || "transit"
-          }));
-          console.log("【命中接口2有效数据】", inputNo);
+        const shipmentList = json.data?.shipment;
+        if (json.status === 1 && Array.isArray(shipmentList) && shipmentList.length > 0) {
+          const firstShip = shipmentList[0];
+          const traceArr = firstShip.traces;
+          if (Array.isArray(traceArr) && traceArr.length > 0) {
+            api2Format = shipmentList.map(item => ({
+              inputNo: inputNo,
+              transNo: item.outer_carrier_tracking_number || "",
+              trackList: item.traces,
+              country: item.country || "",
+              parcelCount: item.parcel_count ?? null,
+              status: item.status || "transit"
+            }));
+            console.log("✅ 命中接口2（带有效轨迹）", inputNo);
+          }else{
+            console.log("⚠️ 接口2查到运单，但轨迹为空，跳过，继续查询下一个接口");
+          }
         }
       }
     } catch (e) {
@@ -100,7 +104,7 @@ app.post("/", async (req, res) => {
     if (api2Format) return res.json({ code: 0, data: api2Format });
 
     // ===================== 接口3 内网渠道 =====================
-    console.log("1/2无有效带轨迹运单，查询接口3");
+    console.log("ℹ️ 接口1/2无有效轨迹，进入接口3查询");
     const api3Cfg = CONFIG.api3;
     let api3Format = null;
     for (const type of api3Cfg.types) {
@@ -129,21 +133,24 @@ app.post("/", async (req, res) => {
           api3Format = [{
             inputNo: inputNo,
             transNo: json.data[0].tracknumber || "",
-            trackList: json.data[0].trackItems || [],
+            trackList: json.data[0].trackItems,
             country: json.data[0].countrycode || "",
             parcelCount: null,
             status: json.data[0].orderstatus || "transit"
           }];
+          console.log("✅ 命中接口3（带有效轨迹）");
           break;
+        }else{
+          console.log(`⚠️接口3-${type}查询无有效轨迹`);
         }
       } catch (e) {
-        console.log(`【接口3-${type}异常】`, e.message);
+        console.log(`❌【接口3-${type}异常】`, e.message);
         continue;
       }
     }
     if (api3Format) return res.json({ code: 0, data: api3Format });
 
-    // 全部渠道无带轨迹运单，返回错误提示
+    // 全部渠道都没有带轨迹的数据
     return res.json({ code: 3, msg: "单号错误，请核对" });
   } catch (globalErr) {
     console.error("全局服务异常", globalErr);
@@ -152,6 +159,6 @@ app.post("/", async (req, res) => {
   }
 });
 
-app.get("/", (req, res) => res.send("修复版：打印原始返回，parcelCount兜底，方便调试"));
+app.get("/", (req, res) => res.send("修复版：严格校验轨迹数组，空轨迹自动跳过，打印完整日志"));
 app.all("/", (req, res) => res.json({ code: -1, msg: "仅支持POST查询请求" }));
 app.listen(PORT, () => console.log(`服务启动完成，端口${PORT}`));
