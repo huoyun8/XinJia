@@ -46,15 +46,12 @@ body{min-height:100vh;padding:15px 12px;background:#f7f7f7;}
 .info-row .text-blue-static{color:#000;font-weight:normal;white-space:nowrap;cursor:default;text-decoration:none;}
 .text-blue{cursor:pointer;}
 .text-blue:hover{color:#004a85;}
-.copy-no-btn{display:none;}
 .toggle-track{margin-top:8px;color:#0074cc;cursor:pointer;user-select:none;display:block;}
 .track-full{display:none;}
 .track-preview{margin-bottom:0;}
 .timeline-item{padding:8px 0 8px 12px;border-left:2px solid #dcdcdc;position:relative;margin-left:4px;}
 .track-time{font-size:13px;color:#888;margin-bottom:3px;}
 .track-desc{font-size:14px;color:#333;}
-.no-data-summary{margin-bottom:16px;padding-bottom:12px;font-size:14px;color:#888;line-height:1.6;}
-.no-data-summary strong{color:#d03030;}
 .error-msg-box{background:#fff5f5;border:1px solid #ffccc7;border-radius:8px;padding:14px;margin-bottom:12px;}
 .error-msg-title{color:#d03030;font-size:16px;font-weight:bold;margin-bottom:6px;}
 .error-msg-content{color:#595959;font-size:14px;}
@@ -115,7 +112,6 @@ body{padding:12px 10px;}
 .input-pill::placeholder{font-size:15px;}
 .history-item{height:64px;padding:7px 18px;}
 .history-list-wrap{max-height: calc(64px * 5);}
-.copy-no-btn{display:none;}
 }
 </style>
 </head>
@@ -225,7 +221,6 @@ const CONST={
     TOAST_SHOW_TIME:1200,
     HISTORY_KEY:"track_query_history",
     MAX_HISTORY_COUNT:10,
-    // 仅保留后端统一中转地址
     PROXY_URL:"https://xinjia5.onrender.com"
 };
 const countryMap = {
@@ -285,7 +280,6 @@ EL.resetBtn.onclick=()=>{
     EL.serviceCard.style.display='block';
     showToast('已清空输入单号');
 };
-// 仅调用后端中转接口，所有渠道查询逻辑全部移至服务端
 async function fetchTrackProxy(no){
     try{
         const res = await fetch(CONST.PROXY_URL,{
@@ -300,7 +294,6 @@ async function fetchTrackProxy(no){
         return {code:-99,msg:"中转服务请求超时或异常"};
     }
 }
-// 统一渲染函数，适配后端标准化输出结构
 function renderShipBlock(dataItem,idx,queryNo){
     const d = dataItem;
     const trackList = d.trackList || [];
@@ -417,7 +410,6 @@ EL.queryBtn.onclick=async ()=>{
         for(let idx=0; idx<unique.length; idx++){
             const currNo = unique[idx];
             EL.resultBox.innerHTML=`<div class="loading-tip">🔄 正在查询第${idx+1}/${unique.length}个：${currNo}</div>`;
-            // 只请求后端中转接口
             const resData = await fetchTrackProxy(currNo);
             if(resData.code === 0 && Array.isArray(resData.data) && resData.data.length > 0){
                 resData.data.forEach((item,i)=>{
