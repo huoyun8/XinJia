@@ -42,10 +42,11 @@ body{min-height:100vh;padding:15px 12px;background:#f7f7f7;}
 .tip-faint{font-size:14px;color:#999;font-weight:normal;margin-left:6px;}
 .info-row{display:flex;align-items:center;margin:6px 0;gap:8px;}
 .info-label{color:#666;flex-shrink:0;width:64px;white-space:nowrap;}
-.text-blue{color:#0074cc;font-weight:bold;white-space:nowrap;cursor:pointer;text-decoration:underline;transition:.2s;}
+.text-blue{color:#0074cc;font-weight:bold;white-space:nowrap;text-decoration:underline;transition:.2s;}
+.info-row .text-blue-static{color:#000;font-weight:normal;white-space:nowrap;cursor:default;text-decoration:none;}
+.text-blue{cursor:pointer;}
 .text-blue:hover{color:#004a85;}
-.copy-no-btn{padding:3px 10px;background:#0074cc;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;flex-shrink:0;transition:0.15s;}
-.copy-no-btn:active{transform:scale(0.95);background:#005ba1;}
+.copy-no-btn{display:none;}
 .toggle-track{margin-top:8px;color:#0074cc;cursor:pointer;user-select:none;display:block;}
 .track-full{display:none;}
 .track-preview{margin-bottom:0;}
@@ -78,7 +79,7 @@ body{min-height:100vh;padding:15px 12px;background:#f7f7f7;}
 .modal-title{font-size:20px;color:#222;font-weight:600;}
 .modal-close{font-size:28px;color:#999;cursor:pointer;line-height:1;transition:.2s;}
 .modal-close:hover{color:#333;}
-.history-clear-box{width:100%;background:#ff3333;text-align:center;padding:9px 0;border-radius:8px;}
+.history-clear-box{width:100%;background:#ff3333;text-align:center;padding:9px 0;border-radius:8px;margin-top:12px;}
 .history-clear{display:inline-block;padding:0 24px;color:#fff;cursor:pointer;font-size:15px;transition:.2s;}
 .history-clear:active{opacity:.8;}
 .history-item{padding:9px 18px;border-bottom:1px solid #f0f2f7;transition:.2s;cursor:pointer;height:72px;display:flex;flex-direction:column;justify-content:center;}
@@ -114,7 +115,7 @@ body{padding:12px 10px;}
 .input-pill::placeholder{font-size:15px;}
 .history-item{height:64px;padding:7px 18px;}
 .history-list-wrap{max-height: calc(64px * 5);}
-.copy-no-btn{padding:2px 7px;font-size:12px;}
+.copy-no-btn{display:none;}
 }
 </style>
 </head>
@@ -224,8 +225,7 @@ const CONST={
     TOAST_SHOW_TIME:1200,
     HISTORY_KEY:"track_query_history",
     MAX_HISTORY_COUNT:10,
-    API_ENCRYPT:["aHR0cHM6Ly90cmFja2luZy5uZXh0c2xzLmNvbS9yZXN0L3RyYWNlL3RyYWNraW5nL2xpc3RzP2FwcD02NTZkOTJmNTczZjA0MjdlOGU1Y2E1MzYmbnVtYmVyPQ==","aHR0cHM6Ly90cmFja2luZy5uZXh0c2xzLmNvbS9yZXN0L3RyYWNlL3RyYWNraW5nL2xpc3RzP2FwcD02NzIwNGU1YzczZjA0MjQ2NDg2OTI0Y2ImbnVtYmVyPQ=="],
-    PROXY_API:"https://xinjia.onrender.com"
+    PROXY_URL:"https://xinjia5.onrender.com"
 };
 const countryMap = {
   "AT": "奥地利","BE": "比利时","BG": "保加利亚","HR": "克罗地亚","CY": "塞浦路斯",
@@ -284,71 +284,32 @@ EL.resetBtn.onclick=()=>{
     EL.serviceCard.style.display='block';
     showToast('已清空输入单号');
 };
-const getApiList=()=>CONST.API_ENCRYPT.map(s=>atob(s));
-const getSingleTrackOld=async num=>{
-    const apiList=getApiList();
-    for(const api of apiList){
-        try{
-            const res=await fetch(api+encodeURIComponent(num));
-            if(!res.ok)continue;
-            const json=await res.json();
-            if(json?.status===1&&json?.data?.shipment) return Array.isArray(json.data.shipment)?json.data.shipment:[json.data.shipment];
-        }catch{}
-    }
-    return null;
-};
-async function getSCFTrack(no){
+async function fetchTrackProxy(no){
     try{
-        const res = await fetch(CONST.PROXY_API,{
+        const res = await fetch(CONST.PROXY_URL,{
             method:"POST",
             headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({trackNo: no})
-        })
-        const json = await res.json();
-        console.log("中转返回完整结果：",json);
-        if(json.code === -99){
-            return {error:"中转服务异常："+json.error};
-        }
-        if(json.code !== 0) return {error:"接口查询失败"};
-        if(!json.data || json.data.length === 0) return {error:"无数据"};
-        const item = json.data[0];
-        if(item.errormsg) return {error:item.errormsg};
-        return {type:"scf",data:item,inputNo:no};
+            body:JSON.stringify({trackNo: no}),
+            signal:AbortSignal.timeout(7000)
+        });
+        if(!res.ok) return {code:-99,msg:"中转服务连接失败"};
+        return await res.json();
     }catch(err){
-        console.error("中转查询异常",err);
-        return {error:"网络请求失败："+err.message};
+        return {code:-99,msg:"中转服务请求超时或异常"};
     }
 }
-function renderShipItem(source,idx,queryNo){
-    let inputNo,trackList,countryText,parcelCount=null,transNo="";
-    let trackTimeKey,trackDescKey,statusText,statusClass;
-    if(source.type === "scf"){
-        const d = source.data;
-        inputNo = source.inputNo;
-        transNo = d.tracknumber || d.waybillnumber || "";
-        trackList = d.trackItems || [];
-        trackTimeKey = "trackdate";
-        trackDescKey = "info";
-        const cc = (d.countrycode || "").toUpperCase();
-        countryText = countryMap[cc] || d.countrycode || "暂无";
-        parcelCount = null;
-        statusText = d.orderstatusName || d.orderstatus || "运输中";
-        statusClass = (d.orderstatus === "Sign" || d.orderstatusName === "已签收") ? "tag-delivered" : "tag-transit";
-    }else{
-        const d = source;
-        inputNo = queryNo;
-        transNo = d.outer_carrier_tracking_number || "";
-        trackList = d.traces || [];
-        trackTimeKey = "time";
-        trackDescKey = "info";
-        countryText = d.country || "";
-        if(d.postcode){
-            countryText += " " + d.postcode;
-        }
-        parcelCount = d.parcel_count;
-        statusText = d.status === 'delivered' ? '已签收' : '运输中';
-        statusClass = d.status === 'delivered' ? 'tag-delivered' : 'tag-transit';
-    }
+function renderShipItem(item,idx,queryNo){
+    const d = item;
+    const inputNo = queryNo;
+    const transNo = d.outer_carrier_tracking_number || "";
+    const trackList = d.traces || [];
+    const trackTimeKey = "time";
+    const trackDescKey = "info";
+    let countryText = d.country || "";
+    if(d.postcode) countryText += " " + d.postcode;
+    const parcelCount = d.parcel_count;
+    const statusText = d.status === 'delivered' ? '已签收' : '运输中';
+    const statusClass = d.status === 'delivered' ? 'tag-delivered' : 'tag-transit';
     const sort=[...trackList].sort((a,b)=>new Date(b[trackTimeKey]) - new Date(a[trackTimeKey]));
     const tid=`${idx}-${queryNo}`;
     const previewList=sort.slice(0,2);
@@ -359,12 +320,9 @@ function renderShipItem(source,idx,queryNo){
         if(parts.length > 1){
             const carrierText = parts.slice(0,-1).join(' ');
             const pureNum = parts.pop();
-            transHtml = `
-                <span>${carrierText} </span>
-                <span class="text-blue" onclick="fillAndSearch('${pureNum}')">${pureNum}</span>
-            `;
+            transHtml = `<span>${carrierText} </span><span class="text-blue" onclick="copyTransNo('${transNo}')">${pureNum}</span>`;
         }else{
-            transHtml = `<span class="text-blue" onclick="fillAndSearch('${transNo}')">${transNo}</span>`;
+            transHtml = `<span class="text-blue" onclick="copyTransNo('${transNo}')">${transNo}</span>`;
         }
     }
     let destLine = `<span>${countryText}</span>`;
@@ -379,12 +337,11 @@ function renderShipItem(source,idx,queryNo){
         </div>
         <div class="info-row">
             <span class="info-label">查询单号：</span>
-            <span class="text-blue" onclick="fillAndSearch('${inputNo.trim()}')">${inputNo.trim()}</span>
+            <span class="text-blue-static">${inputNo.trim()}</span>
         </div>
         <div class="info-row">
             <span class="info-label">转运单号：</span>
             ${transHtml}
-            ${transNo ? `<button class="copy-no-btn" onclick="copyTransNo('${transNo}')">复制</button>` : ''}
         </div>
         <div class="info-row">
             <span class="info-label">目的地：</span>
@@ -411,26 +368,6 @@ function renderShipItem(source,idx,queryNo){
     }
     if(sort.length === 0){
         html += `<div style="margin-top:8px;color:#888;font-size:14px;">暂未获取到物流轨迹</div>`;
-    }
-    if(source.type === "scf" && source.data.subOrderList && source.data.subOrderList.length > 0 && source.data.subOrderTrackItems){
-        html += `<div style="margin-top:16px;padding-top:12px;border-top:1px dashed #e5e7eb;">`;
-        html += `<div style="font-size:16px;font-weight:bold;color:#333;margin-bottom:8px;">子单号轨迹</div>`;
-        source.data.subOrderList.forEach(subNo=>{
-            const subTrackList = source.data.subOrderTrackItems[subNo];
-            if(subTrackList && Array.isArray(subTrackList) && subTrackList.length > 0){
-                const subSort = [...subTrackList].sort((a,b)=>new Date(b.trackdate) - new Date(a.trackdate));
-                html += `<div style="margin-bottom:12px;">`;
-                html += `<div style="font-size:14px;color:#0074cc;font-weight:bold;margin-bottom:6px;">子单号：${subNo}</div>`;
-                subSort.slice(0,2).forEach(t=>{
-                    html += `<div class="timeline-item">
-                        <div class="track-time">${t.trackdate || ""}</div>
-                        <div class="track-desc">${t.info || ""}${t.location ? ' — ' + t.location : ''}</div>
-                    </div>`;
-                });
-                html += `</div>`;
-            }
-        });
-        html += `</div>`;
     }
     html += `</div>`;
     return html;
@@ -470,55 +407,32 @@ EL.queryBtn.onclick=async ()=>{
     EL.resultBox.style.display='block';
     EL.resultBox.innerHTML=`<div class="loading-tip">🔄 开始查询，共${unique.length}个单号...</div>`;
     let allRenderHtml = '';
-    let globalHasValid = false;
     let fullFailList = [];
     try{
         for(let idx=0; idx<unique.length; idx++){
             const currNo = unique[idx];
             EL.resultBox.innerHTML=`<div class="loading-tip">🔄 正在查询第${idx+1}/${unique.length}个：${currNo}</div>`;
-            // 并行请求1/2旧接口、3中转接口
-            const [oldRes,scfRes] = await Promise.all([getSingleTrackOld(currNo), getSCFTrack(currNo)]);
-            let oldHasData = !!(oldRes && oldRes.length > 0);
-            let scfHasData = !!(scfRes && scfRes.type === "scf");
-            const anyChannelValid = oldHasData || scfHasData;
-            let singleBlockHtml = '';
-            // 渲染旧接口1/2数据
-            if(oldHasData){
-                oldRes.forEach((item,i)=>{
-                    singleBlockHtml += renderShipItem(item, idx*10 + i, currNo);
+            const resData = await fetchTrackProxy(currNo);
+            if(resData.code === 0 && Array.isArray(resData.data) && resData.data.length > 0){
+                resData.data.forEach((item,i)=>{
+                    allRenderHtml += renderShipItem(item, idx*10+i, currNo);
                 });
-            }
-            // 渲染中转3接口数据
-            if(scfHasData){
-                singleBlockHtml += renderShipItem(scfRes, idx*10 + 50, currNo);
-            }
-            if(anyChannelValid){
-                allRenderHtml += singleBlockHtml;
-                globalHasValid = true;
                 addHistoryRecord(currNo);
             }else{
-                // 两个渠道全部无数据，才加入失败列表
-                let failMsg = "";
-                if(scfRes?.error) failMsg = scfRes.error;
-                fullFailList.push({no:currNo, msg:failMsg || "所有渠道未匹配到运单"});
+                fullFailList.push({no:currNo, msg:resData.msg});
             }
         }
         let resTitle = `<h3>查询结果（共${unique.length}个单号）</h3>`;
         if(rawList.length !== unique.length){
             resTitle = `<h3>查询结果（输入${rawList.length}个，去重后${unique.length}个单号）</h3>`;
         }
-        // 仅展示全部渠道失败的单号提示
         fullFailList.forEach(item=>{
             resTitle += `<div class="error-msg-box">
-                <div class="error-msg-title">单号 ${item.no} 查询失败</div>
+                <div class="error-msg-title">单号 ${item.no}</div>
                 <div class="error-msg-content">${item.msg}</div>
             </div>`;
         });
-        if(globalHasValid){
-            EL.resultBox.innerHTML = resTitle + allRenderHtml;
-        }else{
-            EL.resultBox.innerHTML = resTitle;
-        }
+        EL.resultBox.innerHTML = resTitle + allRenderHtml;
     }catch(err){
         EL.resultBox.innerHTML=`<div style="padding:20px;color:red;">全局查询异常：${err.message}</div>`;
     }
@@ -552,7 +466,6 @@ const renderHistory=()=>{
         row.onclick=function(){
             EL.orderInput.value=this.dataset.no;
             EL.historyMask.classList.remove('show');
-            EL.serviceCard.style.display='none';
             EL.resultBox.style.display='block';
             EL.queryBtn.click();
         }
