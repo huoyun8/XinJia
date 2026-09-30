@@ -1,106 +1,19 @@
-const express = require('express');
-const cors = require('cors');
-const fetch = require('node-fetch');
-const app = express();
-const PORT = process.env.PORT || 10000;
-
-app.use(cors({
-  origin: "*",
-  allowedHeaders: ["Content-Type"],
-  methods: ["POST", "OPTIONS", "GET"]
-}));
-app.use(express.json({ limit: "10kb" }));
-
-const CONFIG = {
-  timeoutMs: 8000,
-  localApi: {
-    host: "http://120.79.98.64:7888",
-    path: "/prod-api/order/track/html/getTrackByTrackNoNumberList",
-    secretkey: "RoipOXsuEHxtskZtnG7u1w1=="
-  }
-};
-
-app.options("/", (req, res) => {
-  res.sendStatus(200);
-});
-
-async function queryLocalApi(trackNo) {
-  try {
-    const waybillStr = encodeURIComponent(trackNo);
-    const sk = encodeURIComponent(CONFIG.localApi.secretkey);
-    const fullUrl = `${CONFIG.localApi.host}${CONFIG.localApi.path}?waybillStr=${waybillStr}&secretkey=${sk}`;
-    console.log("上游GET请求地址：", fullUrl);
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), CONFIG.timeoutMs);
-    const resp = await fetch(fullUrl, {
-      method: "GET",
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-      },
-      signal: controller.signal
-    });
-    clearTimeout(timer);
-
-    console.log("上游HTTP状态码：", resp.status);
-    const rawText = await resp.text();
-    console.log("上游原始返回：", rawText);
-
-    // 只处理JSON返回，临时调试
-    const jsonObj = JSON.parse(rawText);
-    return {success:false, msg: jsonObj.msg || "接口错误"};
-
-  } catch (err) {
-    console.error("查询捕获异常：", err);
-    return { success: false, msg: err.message };
-  }
+// secretkey 生成 —— AES-256-CBC + PKCS7，与前端 JS 逐字节一致（已用 Node 实测 = RoipOXsuEHxtskZtnG7u1w==）
+const crypto = require("crypto");
+function encryptSecretkey(port) {
+  const key = Buffer.from("n8dO/MiByC/x+VwQScakZqpOiTm8t873oPOjEFJh/k4=", "base64");
+  const iv  = Buffer.from("lXE7kVMGCrWRVEw2IMV7lA==", "base64");
+  const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+  let enc = cipher.update(String(port), "utf8", "base64");
+  return enc + cipher.final("base64");
 }
 
-app.post("/", async (req, res) => {
-  try {
-    const inputNo = (req.body.trackNo || "").trim();
-    console.log("收到前端查询单号：", inputNo);
-
-    if (!inputNo) return res.json({ code: -2, msg: "运单号不能为空", data: [] });
-    if (inputNo.length < 5 || inputNo.length > 18) return res.json({ code: -2, msg: "单号长度需5-18位，请检查", data: [] });
-
-    const apiResult = await queryLocalApi(inputNo);
-    if (apiResult.success) {
-      return res.json({
-        code: 0,
-        msg: apiResult.msg,
-        data: apiResult.data
-      });
-    } else {
-      return res.json({
-        code: -1,
-        msg: apiResult.msg,
-        data: []
-      });
-    }
-  } catch (err) {
-    console.error("中转服务全局异常：", err);
-    let msg = "中转服务异常";
-    if (err.name === "AbortError") msg = "上游接口请求超时";
-    return res.json({ code: -99, msg, error: err.message });
-  }
-});
-
-app.get("/debug", async (req, res) => {
-  const trackNo = req.query.no || "";
-  if (!trackNo) return res.send("用法 /debug?no=单号");
-  const ret = await queryLocalApi(trackNo);
-  res.json(ret);
-});
-
-app.get("/", (req, res) => {
-  res.send("中转服务运行正常");
-});
-
-app.all("*", (req, res) => {
-  return res.json({ code: -1, msg: "仅支持POST查询请求", data: [] });
-});
-
-app.listen(PORT, () => {
-  console.log(`中转服务启动成功，端口:${PORT}`);
-});
+// 转发上游
+const UPSTREAM_API = `${ORIGIN_URL}/prod-api/order/track/html/getTrackByTrackNoNumberList`;
+async function queryUpstream(numbers) {
+  const params = new URLSearchParams({ waybillStr: numbers.join(","), secretkey: encryptSecretkey(UPSTREAM_PORT) });
+  const resp = await fetch(`${UPSTREAM_API}?${params}`, { headers: { "User-Agent": "...", Referer: `${ORIGIN_URL}/#/track`, Cookie: COOKIE } });
+  const json = await resp.json();
+  if (resp.status !== 200 || json.code !== 200) return { ok: false, code: json.code, msg: json.msg };
+  return { ok: true, code: 200, data: json.data };
+}
