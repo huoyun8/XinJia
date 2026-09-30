@@ -24,6 +24,53 @@ const CONFIG = {
   }
 };
 
+// 国家码映射
+const COUNTRY_MAP = {
+  "AT": "奥地利","BE": "比利时","BG": "保加利亚","HR": "克罗地亚","CY": "塞浦路斯",
+  "CZ": "捷克","DK": "丹麦","EE": "爱沙尼亚","FI": "芬兰","FR": "法国",
+  "DE": "德国","GR": "希腊","HU": "匈牙利","IE": "爱尔兰","IT": "意大利",
+  "LV": "拉脱维亚","LT": "立陶宛","LU": "卢森堡","MT": "马耳他","NL": "荷兰",
+  "PL": "波兰","PT": "葡萄牙","RO": "罗马尼亚","SK": "斯洛伐克","SI": "斯洛文尼亚",
+  "ES": "西班牙","SE": "瑞典","US": "美国"
+};
+
+// 标准化包装 nextsls 1/2渠道
+function formatOldShipment(rawShip, inputNo) {
+  const trackList = Array.isArray(rawShip.traces) ? rawShip.traces.map(t => ({
+    time: t.time || "",
+    info: t.info || "",
+    location: t.location || ""
+  })) : [];
+  return {
+    queryNo: inputNo,
+    transNo: rawShip.outer_carrier_tracking_number || "",
+    country: rawShip.country ? (COUNTRY_MAP[rawShip.country.toUpperCase()] || rawShip.country) : "",
+    parcelCount: rawShip.parcel_count ?? null,
+    status: rawShip.status === "delivered" ? "已签收" : "运输中",
+    trackList
+  };
+}
+
+// 标准化包装 api3内网渠道
+function formatApi3Ship(rawShip, inputNo) {
+  const trackList = Array.isArray(rawShip.trackItems) ? rawShip.trackItems.map(t => ({
+    time: t.trackdate || "",
+    info: t.info || "",
+    location: t.location || ""
+  })) : [];
+  const cc = (rawShip.countrycode || "").toUpperCase();
+  const country = COUNTRY_MAP[cc] || rawShip.countrycode || "";
+  const status = (rawShip.orderstatus === "Sign" || rawShip.orderstatusName === "已签收") ? "已签收" : "运输中";
+  return {
+    queryNo: inputNo,
+    transNo: rawShip.tracknumber || "",
+    country,
+    parcelCount: null,
+    status,
+    trackList
+  };
+}
+
 app.options("/", (req, res) => res.sendStatus(200));
 
 app.post("/", async (req, res) => {
@@ -31,134 +78,85 @@ app.post("/", async (req, res) => {
     const inputNo = (req.body.trackNo || "").trim().toUpperCase();
     console.log("【查询单号】", inputNo);
 
-    if (!inputNo) return res.json({ code: -2, msg: "运单号不能为空" });
-    if (inputNo.length < 5 || inputNo.length > 18) return res.json({ code: -2, msg: "单号长度需5-18位，请检查" });
+    // 参数校验
+    if (!inputNo) return res.json({ code: -2, msg: "运单号不能为空", data: [] });
+    if (inputNo.length < 5 || inputNo.length > 18) return res.json({ code: -2, msg: "单号长度需5-18位，请检查", data: [] });
 
-    // ===================== 接口1 =====================
-    let api1Format = null;
+    // 1. 查询接口1
+    let hitData = null;
     try {
-      const abortCtrl = new AbortController();
-      const timer = setTimeout(() => abortCtrl.abort(), CONFIG.fetchTimeout);
-      const resp = await fetch(CONFIG.api1Url + encodeURIComponent(inputNo), { signal: abortCtrl.signal });
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), CONFIG.fetchTimeout);
+      const resp = await fetch(CONFIG.api1Url + encodeURIComponent(inputNo), { signal: ctrl.signal });
       clearTimeout(timer);
       if (resp.ok) {
         const json = await resp.json();
-        console.log("【接口1原始返回】", JSON.stringify(json,null,2));
-        // 强校验：shipment存在，并且traces是数组，并且数组长度>0
-        const shipmentList = json.data?.shipment;
-        if (json.status === 1 && Array.isArray(shipmentList) && shipmentList.length > 0) {
-          const firstShip = shipmentList[0];
-          const traceArr = firstShip.traces;
-          if (Array.isArray(traceArr) && traceArr.length > 0) {
-            api1Format = shipmentList.map(item => ({
-              inputNo: inputNo,
-              transNo: item.outer_carrier_tracking_number || "",
-              trackList: item.traces,
-              country: item.country || "",
-              parcelCount: item.parcel_count ?? null,
-              status: item.status || "transit"
-            }));
-            console.log("✅ 命中接口1（带有效轨迹）", inputNo);
-          }else{
-            console.log("⚠️ 接口1查到运单，但轨迹为空，跳过，继续查询下一个接口");
-          }
+        if (json.status === 1 && Array.isArray(json.data?.shipment) && json.data.shipment.length > 0) {
+          hitData = json.data.shipment.map(item => formatOldShipment(item, inputNo));
+          console.log("✅ 命中接口1");
         }
       }
     } catch (e) {
-      console.log("【接口1异常跳过】", e.message);
+      console.log("⚠️ 接口1异常跳过", e.message);
     }
-    if (api1Format) return res.json({ code: 0, data: api1Format });
+    if (hitData) return res.json({ code: 0, msg: "", data: hitData });
 
-    // ===================== 接口2 =====================
-    let api2Format = null;
+    // 2. 查询接口2
     try {
-      const abortCtrl = new AbortController();
-      const timer = setTimeout(() => abortCtrl.abort(), CONFIG.fetchTimeout);
-      const resp = await fetch(CONFIG.api2Url + encodeURIComponent(inputNo), { signal: abortCtrl.signal });
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), CONFIG.fetchTimeout);
+      const resp = await fetch(CONFIG.api2Url + encodeURIComponent(inputNo), { signal: ctrl.signal });
       clearTimeout(timer);
       if (resp.ok) {
         const json = await resp.json();
-        console.log("【接口2原始返回】", JSON.stringify(json,null,2));
-        const shipmentList = json.data?.shipment;
-        if (json.status === 1 && Array.isArray(shipmentList) && shipmentList.length > 0) {
-          const firstShip = shipmentList[0];
-          const traceArr = firstShip.traces;
-          if (Array.isArray(traceArr) && traceArr.length > 0) {
-            api2Format = shipmentList.map(item => ({
-              inputNo: inputNo,
-              transNo: item.outer_carrier_tracking_number || "",
-              trackList: item.traces,
-              country: item.country || "",
-              parcelCount: item.parcel_count ?? null,
-              status: item.status || "transit"
-            }));
-            console.log("✅ 命中接口2（带有效轨迹）", inputNo);
-          }else{
-            console.log("⚠️ 接口2查到运单，但轨迹为空，跳过，继续查询下一个接口");
-          }
+        if (json.status === 1 && Array.isArray(json.data?.shipment) && json.data.shipment.length > 0) {
+          hitData = json.data.shipment.map(item => formatOldShipment(item, inputNo));
+          console.log("✅ 命中接口2");
         }
       }
     } catch (e) {
-      console.log("【接口2异常跳过】", e.message);
+      console.log("⚠️ 接口2异常跳过", e.message);
     }
-    if (api2Format) return res.json({ code: 0, data: api2Format });
+    if (hitData) return res.json({ code: 0, msg: "", data: hitData });
 
-    // ===================== 接口3 内网渠道 =====================
-    console.log("ℹ️ 接口1/2无有效轨迹，进入接口3查询");
+    // 3. 查询接口3 循环类型
+    console.log("ℹ️ 1/2无运单，进入接口3");
     const api3Cfg = CONFIG.api3;
-    let api3Format = null;
     for (const type of api3Cfg.types) {
       try {
         const body = { authorization: { code: api3Cfg.clientCode, token: api3Cfg.apiToken }, datas: { [type]: [inputNo] } };
-        const abortCtrl = new AbortController();
-        const timer = setTimeout(() => abortCtrl.abort(), api3Cfg.timeoutMs);
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), api3Cfg.timeoutMs);
         const resp = await fetch(api3Cfg.targetUrl, {
           method: "POST",
-          signal: abortCtrl.signal,
+          signal: ctrl.signal,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
         clearTimeout(timer);
-        console.log(`【接口3-${type} HTTP状态】`,resp.status);
         if (!resp.ok) throw new Error(`HTTP${resp.status}`);
         const json = await resp.json();
-        console.log(`【接口3-${type}返回】`, JSON.stringify(json,null,2));
-        if (
-          json.code === 0
-          && json.data?.length > 0
-          && !json.data[0].errormsg
-          && Array.isArray(json.data[0].trackItems)
-          && json.data[0].trackItems.length > 0
-        ) {
-          api3Format = [{
-            inputNo: inputNo,
-            transNo: json.data[0].tracknumber || "",
-            trackList: json.data[0].trackItems,
-            country: json.data[0].countrycode || "",
-            parcelCount: null,
-            status: json.data[0].orderstatus || "transit"
-          }];
-          console.log("✅ 命中接口3（带有效轨迹）");
+        if (json.code === 0 && Array.isArray(json.data) && json.data.length > 0 && !json.data[0].errormsg) {
+          hitData = json.data.map(item => formatApi3Ship(item, inputNo));
+          console.log(`✅ 接口3-${type}命中`);
           break;
-        }else{
-          console.log(`⚠️接口3-${type}查询无有效轨迹`);
         }
       } catch (e) {
-        console.log(`❌【接口3-${type}异常】`, e.message);
+        console.log(`⚠️ 接口3-${type}异常`, e.message);
         continue;
       }
     }
-    if (api3Format) return res.json({ code: 0, data: api3Format });
+    if (hitData) return res.json({ code: 0, msg: "", data: hitData });
 
-    // 全部渠道都没有带轨迹的数据
-    return res.json({ code: 3, msg: "单号错误，请核对" });
+    // 全部渠道无匹配
+    return res.json({ code: 3, msg: "单号错误，请核对", data: [] });
   } catch (globalErr) {
-    console.error("全局服务异常", globalErr);
+    console.error("❌ 全局服务异常", globalErr);
     const msg = globalErr.name === "AbortError" ? "上游接口请求超时" : "中转服务异常";
-    return res.json({ code: -99, msg, error: globalErr.message });
+    return res.json({ code: -99, msg, data: [] });
   }
 });
 
-app.get("/", (req, res) => res.send("修复版：严格校验轨迹数组，空轨迹自动跳过，打印完整日志"));
-app.all("/", (req, res) => res.json({ code: -1, msg: "仅支持POST查询请求" }));
-app.listen(PORT, () => console.log(`服务启动完成，端口${PORT}`));
+app.get("/", (req, res) => res.send("统一标准化中转服务：1/2/3后端封装统一输出，前端只读标准data数组"));
+app.all("/", (req, res) => res.json({ code: -1, msg: "仅支持POST查询", data: [] }));
+app.listen(PORT, () => console.log("服务启动完成"));
