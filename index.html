@@ -221,7 +221,7 @@ const CONST={
     TOAST_SHOW_TIME:1200,
     HISTORY_KEY:"track_query_history",
     MAX_HISTORY_COUNT:10,
-    PROXY_URL:"https://xinjia5.onrender.com"
+    PROXY_URL:"https://xinjia3.onrender.com"
 };
 const countryMap = {
   "AT": "奥地利","BE": "比利时","BG": "保加利亚","HR": "克罗地亚","CY": "塞浦路斯",
@@ -280,6 +280,7 @@ EL.resetBtn.onclick=()=>{
     EL.serviceCard.style.display='block';
     showToast('已清空输入单号');
 };
+// 仅请求Render后端中转，无前端直查nextsls接口代码
 async function fetchTrackProxy(no){
     try{
         const res = await fetch(CONST.PROXY_URL,{
@@ -294,6 +295,7 @@ async function fetchTrackProxy(no){
         return {code:-99,msg:"中转服务请求超时或异常"};
     }
 }
+// 渲染函数统一读取 trackList 字段（后端1/2/3输出完全统一）
 function renderShipBlock(dataItem,idx,queryNo){
     const d = dataItem;
     const trackList = d.trackList || [];
@@ -410,11 +412,12 @@ EL.queryBtn.onclick=async ()=>{
         for(let idx=0; idx<unique.length; idx++){
             const currNo = unique[idx];
             EL.resultBox.innerHTML=`<div class="loading-tip">🔄 正在查询第${idx+1}/${unique.length}个：${currNo}</div>`;
+            // 仅调用Render后端，1/2/3逻辑全部后端执行
             const resData = await fetchTrackProxy(currNo);
             if(resData.code === 0 && Array.isArray(resData.data) && resData.data.length > 0){
                 resData.data.forEach((item,i)=>{
                     allRenderHtml += renderShipBlock(item, idx*10+i, currNo);
-                })
+                });
                 addHistoryRecord(currNo);
             }else{
                 fullFailList.push({no:currNo, msg:resData.msg});
