@@ -1,12 +1,14 @@
 {
-  "name": "track-proxy",
-  "version": "1.0.0",
-  "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "node-fetch": "^2.7.0"
-  },
-  "scripts": {
-    "start": "node index.js"
-  }
+  "code": 0,
+  "msg": "",
+  "data": [
+    {
+      "queryNo": "查询输入单号",
+      "transNo": "转运单号/空字符串",
+      "country": "目的地中文国家",
+      "parcelCount": 数字|null,
+      "status": "运输中/已签收",
+      "trackList": [{"time":"时间","info":"内容","location":"地点"}]
+    }
+  ]
 }
