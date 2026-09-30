@@ -13,11 +13,9 @@ app.use(express.json({ limit: "10kb" }));
 
 // 全局配置
 const CONFIG = {
-  // 接口1、2 nextsls查询地址
   api1Url: "https://tracking.nextsls.com/rest/trace/tracking/lists?app=656d92f573f0427e8e5ca536&number=",
   api2Url: "https://tracking.nextsls.com/rest/trace/tracking/lists?app=67204e5c73f04246486924cb&number=",
   fetchTimeout: 7000,
-  // 接口3 内网物流查询配置（独立分段逻辑）
   api3: {
     clientCode: "20260928",
     apiToken: "6d3bacb8-f628-48c2-8325-755802702a05",
@@ -31,13 +29,11 @@ app.options("/", (req, res) => {
   res.sendStatus(200);
 });
 
-// 统一查询入口
 app.post("/", async (req, res) => {
   try {
     const inputNo = (req.body.trackNo || "").trim();
     console.log("收到查询单号：", inputNo);
 
-    // 单号基础校验
     if (!inputNo) {
       return res.json({ code: -2, msg: "运单号不能为空" });
     }
@@ -45,7 +41,7 @@ app.post("/", async (req, res) => {
       return res.json({ code: -2, msg: "单号长度需5-18位，请检查" });
     }
 
-    // ====================== 第一段：请求接口1 ======================
+    // 第一段 请求接口1
     let api1Result = null;
     try {
       const controller1 = new AbortController();
@@ -56,7 +52,6 @@ app.post("/", async (req, res) => {
       clearTimeout(timer1);
       if (resp1.ok) {
         const data1 = await resp1.json();
-        // 判断接口1是否存在有效物流数据
         if (data1.status === 1 && data1.data && data1.data.shipment) {
           api1Result = data1;
         }
@@ -64,7 +59,6 @@ app.post("/", async (req, res) => {
     } catch (err) {
       console.log("接口1请求异常：", err.message);
     }
-    // 接口1有数据，直接返回，不再执行2、3
     if (api1Result) {
       return res.json({
         code: 0,
@@ -73,7 +67,7 @@ app.post("/", async (req, res) => {
       });
     }
 
-    // ====================== 第二段：请求接口2 ======================
+    // 第二段 请求接口2
     let api2Result = null;
     try {
       const controller2 = new AbortController();
@@ -91,7 +85,6 @@ app.post("/", async (req, res) => {
     } catch (err) {
       console.log("接口2请求异常：", err.message);
     }
-    // 接口2有数据，直接返回，不再执行3
     if (api2Result) {
       return res.json({
         code: 0,
@@ -100,7 +93,7 @@ app.post("/", async (req, res) => {
       });
     }
 
-    // ====================== 第三段：请求接口3（完整独立逻辑，不与1/2混写） ======================
+    // 第三段 请求接口3
     console.log("接口1、2均无数据，执行接口3查询");
     let api3LastResult = null;
     const api3Config = CONFIG.api3;
@@ -122,7 +115,6 @@ app.post("/", async (req, res) => {
       const result3 = await rawRes3.json();
       console.log(`接口3 - ${type} 返回：`, result3);
       api3LastResult = result3;
-      // 接口3查到有效数据直接返回
       if (result3.code === 0 && result3.data && result3.data.length > 0 && !result3.data[0].errormsg) {
         console.log(`接口3查询成功，返回结果`);
         return res.json({
@@ -132,8 +124,6 @@ app.post("/", async (req, res) => {
         });
       }
     }
-    // 全部渠道无单，修改提示文案
-    console.log("接口1、2、3三种渠道均未匹配到运单");
     return res.json({
       code: 3,
       msg: "单号错误，请核对"
@@ -147,12 +137,10 @@ app.post("/", async (req, res) => {
   }
 });
 
-// 健康检测接口
 app.get("/", (req, res) => {
   res.send("代理服务运行正常 | 顺序查询1→2→3");
 });
 
-// 拦截非POST请求
 app.all("/", (req, res) => {
   return res.json({ code: -1, msg: "仅支持POST查询请求" });
 });
