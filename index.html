@@ -221,15 +221,7 @@ const CONST={
     TOAST_SHOW_TIME:1200,
     HISTORY_KEY:"track_query_history",
     MAX_HISTORY_COUNT:10,
-    PROXY_URL:"https://xinjia3.onrender.com"
-};
-const countryMap = {
-  "AT": "奥地利","BE": "比利时","BG": "保加利亚","HR": "克罗地亚","CY": "塞浦路斯",
-  "CZ": "捷克","DK": "丹麦","EE": "爱沙尼亚","FI": "芬兰","FR": "法国",
-  "DE": "德国","GR": "希腊","HU": "匈牙利","IE": "爱尔兰","IT": "意大利",
-  "LV": "拉脱维亚","LT": "立陶宛","LU": "卢森堡","MT": "马耳他","NL": "荷兰",
-  "PL": "波兰","PT": "葡萄牙","RO": "罗马尼亚","SK": "斯洛伐克","SI": "斯洛文尼亚",
-  "ES": "西班牙","SE": "瑞典","US": "美国"
+    PROXY_URL:"https://xinjia3.onrender.com" // 你的Render后端地址
 };
 let toastQueue=[],hasRefreshedQr=false;
 const showToast=msg=>{
@@ -280,7 +272,7 @@ EL.resetBtn.onclick=()=>{
     EL.serviceCard.style.display='block';
     showToast('已清空输入单号');
 };
-// 仅请求Render后端中转，无前端直查nextsls接口代码
+// 仅请求后端统一接口，无任何第三方API请求
 async function fetchTrackProxy(no){
     try{
         const res = await fetch(CONST.PROXY_URL,{
@@ -289,48 +281,43 @@ async function fetchTrackProxy(no){
             body:JSON.stringify({trackNo: no}),
             signal:AbortSignal.timeout(7000)
         });
-        if(!res.ok) return {code:-99,msg:"中转服务连接失败"};
+        if(!res.ok) return {code:-99,msg:"中转服务连接失败",data:[]};
         return await res.json();
     }catch(err){
-        return {code:-99,msg:"中转服务请求超时或异常"};
+        return {code:-99,msg:"中转服务请求超时",data:[]};
     }
 }
-// 渲染函数统一读取 trackList 字段（后端1/2/3输出完全统一）
-function renderShipBlock(dataItem,idx,queryNo){
-    const d = dataItem;
-    const trackList = d.trackList || [];
-    const sortTrack = [...trackList].sort((a,b)=>new Date(b.trackdate || b.time) - new Date(a.trackdate || b.time));
-    const tid=`${idx}-${queryNo}`;
-    const previewList = sortTrack.slice(0,2);
-    const fullList = sortTrack.slice(2);
+// 标准化渲染函数，只读后端统一输出字段，永久无需修改
+function renderShipBlock(item,idx){
+    const tid = `${idx}-${item.queryNo}`;
+    const sortTrack = [...item.trackList].sort((a,b)=>new Date(b.time) - new Date(a.time));
+    const preview = sortTrack.slice(0,2);
+    const full = sortTrack.slice(2);
 
     let transHtml = '<span>无</span>';
-    if(d.transNo){
-        const parts = d.transNo.split(' ');
+    if(item.transNo){
+        const parts = item.transNo.split(' ');
         if(parts.length > 1){
-            const carrierText = parts.slice(0,-1).join(' ');
-            const pureNum = parts.pop();
-            transHtml = `<span>${carrierText} </span><span class="text-blue" onclick="copyTransNo('${d.transNo}')">${pureNum}</span>`;
+            const pre = parts.slice(0,-1).join(' ');
+            const num = parts.pop();
+            transHtml = `<span>${pre} </span><span class="text-blue" onclick="copyTransNo('${item.transNo}')">${num}</span>`;
         }else{
-            transHtml = `<span class="text-blue" onclick="copyTransNo('${d.transNo}')">${d.transNo}</span>`;
+            transHtml = `<span class="text-blue" onclick="copyTransNo('${item.transNo}')">${item.transNo}</span>`;
         }
     }
-    const countryCode = (d.country || "").toUpperCase();
-    const countryText = countryMap[countryCode] || d.country || "";
-    let destHtml = `<span>${countryText}</span>`;
-    if(d.parcelCount !== null) destHtml += ` <span style="margin-left:12px;color:#333;">包裹数量：${d.parcelCount}件</span>`;
-    const statusText = d.status === "delivered" ? "已签收" : "运输中";
-    const statusClass = d.status === "delivered" ? "tag-delivered" : "tag-transit";
+    let destLine = `<span>${item.country || "暂无"}</span>`;
+    if(item.parcelCount !== null) destLine += ` <span style="margin-left:12px;color:#333;">包裹数量：${item.parcelCount}件</span>`;
+    const statusClass = item.status === "已签收" ? "tag-delivered" : "tag-transit";
 
-    let html=`
+    let html = `
     <div class="ship-card" data-index="${tid}">
         <div class="ship-head">
-            <span class="status-tag ${statusClass}">${statusText}</span>
+            <span class="status-tag ${statusClass}">${item.status}</span>
             <span class="tip-faint">如轨迹异常，尝试再次查询</span>
         </div>
         <div class="info-row">
             <span class="info-label">查询单号：</span>
-            <span class="text-blue-static">${queryNo.toUpperCase()}</span>
+            <span class="text-blue-static">${item.queryNo}</span>
         </div>
         <div class="info-row">
             <span class="info-label">转运单号：</span>
@@ -338,31 +325,25 @@ function renderShipBlock(dataItem,idx,queryNo){
         </div>
         <div class="info-row">
             <span class="info-label">目的地：</span>
-            ${destHtml}
+            ${destLine}
         </div>
     `;
     html += `<div class="track-preview">`;
-    previewList.forEach(item=>{
-        const time = item.trackdate || item.time;
-        const desc = item.info || "";
-        const loc = item.location ? ` — ${item.location}` : "";
+    preview.forEach(t=>{
         html += `<div class="timeline-item">
-            <div class="track-time">${time}</div>
-            <div class="track-desc">${desc}${loc}</div>
+            <div class="track-time">${t.time}</div>
+            <div class="track-desc">${t.info}${t.location ? ' — ' + t.location : ''}</div>
         </div>`;
-    })
+    });
     html += `</div>`;
-    if(fullList.length > 0){
-        html += `<div class="track-wrap track-full" id="track-${tid}">`;
-        fullList.forEach(item=>{
-            const time = item.trackdate || item.time;
-            const desc = item.info || "";
-            const loc = item.location ? ` — ${item.location}` : "";
+    if(full.length > 0){
+        html += `<div class="track-full" id="track-${tid}">`;
+        full.forEach(t=>{
             html += `<div class="timeline-item">
-                <div class="track-time">${time}</div>
-                <div class="track-desc">${desc}${loc}</div>
+                <div class="track-time">${t.time}</div>
+                <div class="track-desc">${t.info}${t.location ? ' — ' + t.location : ''}</div>
             </div>`;
-        })
+        });
         html += `</div>
         <div class="toggle-track" data-target="${tid}">▼ 展开完整物流轨迹</div>`;
     }
@@ -373,120 +354,114 @@ function renderShipBlock(dataItem,idx,queryNo){
     return html;
 }
 document.addEventListener('click',e=>{
-    const btn=e.target.closest('.toggle-track');
-    if(!btn)return;
-    const tid=btn.dataset.target;
-    const fullDom=document.getElementById(`track-${tid}`);
-    const isOpen=fullDom.style.display==='block';
-    fullDom.style.display = isOpen ? "none" : "block";
-    btn.innerText = isOpen ? '▲ 收起物流轨迹' : '▼ 展开完整物流轨迹';
+    const btn = e.target.closest('.toggle-track');
+    if(!btn) return;
+    const tid = btn.dataset.target;
+    const dom = document.getElementById(`track-${tid}`);
+    const open = dom.style.display === "block";
+    dom.style.display = open ? "none" : "block";
+    btn.innerText = open ? "▼ 展开完整物流轨迹" : "▲ 收起物流轨迹";
 });
-EL.queryBtn.onclick=async ()=>{
-    const rawVal=EL.orderInput.value.trim();
+EL.queryBtn.onclick = async ()=>{
+    const rawVal = EL.orderInput.value.trim();
     if(!rawVal){
-        showToast('请输入单号!');
+        showToast("请输入单号!");
         return;
     }
-    let filterText = rawVal.replace(/[\u4e00-\u9fa5]/g, '');
-    filterText = filterText.replace(/[^\da-zA-Z]+/g, '\n');
-    const rawList = filterText.split('\n').map(v=>v.trim().toUpperCase()).filter(v=>v);
-    for(const item of rawList){
-        const isAlphaNum = /^[A-Za-z0-9]+$/.test(item);
-        const len = item.length;
-        if(!isAlphaNum || len < 5 || len > 18){
-            showToast('单号长度需5-18位，请检查');
+    let filter = rawVal.replace(/[\u4e00-\u9fa5]/g,'');
+    filter = filter.replace(/[^\da-zA-Z]+/g,'\n');
+    const list = filter.split('\n').map(v=>v.trim().toUpperCase()).filter(v=>v);
+    for(const s of list){
+        if(!/^[A-Z0-9]+$/.test(s) || s.length <5 || s.length>18){
+            showToast("单号长度需5-18位，请检查");
             return;
         }
     }
-    const unique = [...new Set(rawList)];
+    const unique = [...new Set(list)];
     if(unique.length > CONST.MAX_ROWS){
-        showToast(`单次最多查询${CONST.MAX_ROWS}个单号`);
+        showToast(`单次最多${CONST.MAX_ROWS}个单号`);
         return;
     }
-    EL.serviceCard.style.display='none';
-    EL.resultBox.style.display='block';
-    EL.resultBox.innerHTML=`<div class="loading-tip">🔄 开始查询，共${unique.length}个单号...</div>`;
-    let allRenderHtml = '';
-    let fullFailList = [];
+    EL.serviceCard.style.display = "none";
+    EL.resultBox.style.display = "block";
+    EL.resultBox.innerHTML = `<div class="loading-tip">🔄 正在查询...</div>`;
+    let renderHtml = "";
+    let failList = [];
     try{
-        for(let idx=0; idx<unique.length; idx++){
-            const currNo = unique[idx];
-            EL.resultBox.innerHTML=`<div class="loading-tip">🔄 正在查询第${idx+1}/${unique.length}个：${currNo}</div>`;
-            // 仅调用Render后端，1/2/3逻辑全部后端执行
-            const resData = await fetchTrackProxy(currNo);
-            if(resData.code === 0 && Array.isArray(resData.data) && resData.data.length > 0){
-                resData.data.forEach((item,i)=>{
-                    allRenderHtml += renderShipBlock(item, idx*10+i, currNo);
+        for(let i=0;i<unique.length;i++){
+            const no = unique[i];
+            EL.resultBox.innerHTML = `<div class="loading-tip">🔄 第${i+1}/${unique.length}个：${no}</div>`;
+            const res = await fetchTrackProxy(no);
+            if(res.code === 0 && Array.isArray(res.data) && res.data.length > 0){
+                res.data.forEach((item,j)=>{
+                    renderHtml += renderShipBlock(item, i*10 + j);
                 });
-                addHistoryRecord(currNo);
+                addHistoryRecord(no);
             }else{
-                fullFailList.push({no:currNo, msg:resData.msg});
+                failList.push({no, msg:res.msg});
             }
         }
-        let resTitle = `<h3>查询结果（共${unique.length}个单号）</h3>`;
-        if(rawList.length !== unique.length){
-            resTitle = `<h3>查询结果（输入${rawList.length}个，去重后${unique.length}个单号）</h3>`;
-        }
-        fullFailList.forEach(item=>{
-            resTitle += `<div class="error-msg-box">
-                <div class="error-msg-title">单号 ${item.no}</div>
-                <div class="error-msg-content">${item.msg}</div>
+        let title = `<h3>查询结果（共${unique.length}个单号）</h3>`;
+        failList.forEach(f=>{
+            title += `<div class="error-msg-box">
+                <div class="error-msg-title">单号 ${f.no}</div>
+                <div class="error-msg-content">${f.msg}</div>
             </div>`;
         });
-        EL.resultBox.innerHTML = resTitle + allRenderHtml;
+        EL.resultBox.innerHTML = title + renderHtml;
     }catch(err){
-        EL.resultBox.innerHTML=`<div style="padding:20px;color:red;">全局查询异常：${err.message}</div>`;
+        EL.resultBox.innerHTML = `<div style="padding:20px;color:red;">查询异常：${err.message}</div>`;
     }
 };
-const getHistory=()=>JSON.parse(localStorage.getItem(CONST.HISTORY_KEY)||'[]');
-const saveHistory=list=>{
-    if(list.length>CONST.MAX_HISTORY_COUNT)list.length=CONST.MAX_HISTORY_COUNT;
-    localStorage.setItem(CONST.HISTORY_KEY,JSON.stringify(list));
+const getHistory = ()=>JSON.parse(localStorage.getItem(CONST.HISTORY_KEY)||'[]');
+const saveHistory = arr=>{
+    if(arr.length > CONST.MAX_HISTORY_COUNT) arr.length = CONST.MAX_HISTORY_COUNT;
+    localStorage.setItem(CONST.HISTORY_KEY,JSON.stringify(arr));
 };
-const getNowTime=()=>{
-    const d=new Date();
+const getNowTime = ()=>{
+    const d = new Date();
     return `${d.getMonth()+1}月${d.getDate()}日 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 };
-const addHistoryRecord=no=>{
-    const list=getHistory(),time=getNowTime();
-    const idx=list.findIndex(item=>item.no===no);
-    if(idx>-1)list.splice(idx,1);
-    list.unshift({no,time});
-    saveHistory(list);
+const addHistoryRecord = no=>{
+    const arr = getHistory();
+    const idx = arr.findIndex(x=>x.no === no);
+    if(idx > -1) arr.splice(idx,1);
+    arr.unshift({no, time:getNowTime()});
+    saveHistory(arr);
 };
-const renderHistory=()=>{
-    const list=getHistory();
-    if(!list.length)return EL.historyListWrap.innerHTML=`<div class="history-empty">暂无历史记录</div>`;
-    EL.historyListWrap.innerHTML=list.map(item=>`
+const renderHistory = ()=>{
+    const arr = getHistory();
+    if(!arr.length) return EL.historyListWrap.innerHTML = `<div class="history-empty">暂无历史记录</div>`;
+    EL.historyListWrap.innerHTML = arr.map(item=>`
         <div class="history-item" data-no="${item.no}">
             <div class="history-time">最近查询：${item.time}</div>
             <div class="history-no">${item.no}</div>
         </div>
     `).join('');
     document.querySelectorAll('.history-item').forEach(row=>{
-        row.onclick=function(){
-            EL.orderInput.value=this.dataset.no;
+        row.onclick = ()=>{
+            EL.orderInput.value = row.dataset.no;
             EL.historyMask.classList.remove('show');
-            EL.resultBox.style.display='block';
+            EL.resultBox.style.display = "block";
             EL.queryBtn.click();
-        }
+        };
     });
 };
-EL.historyBtn.onclick=()=>{
-    const list=getHistory();
-    if(!list.length)return showToast("暂无历史记录");
+EL.historyBtn.onclick = ()=>{
+    const arr = getHistory();
+    if(!arr.length) return showToast("暂无历史记录");
     renderHistory();
     EL.historyMask.classList.add('show');
 };
-EL.clearAllHistory.onclick=()=>{
+EL.clearAllHistory.onclick = ()=>{
     localStorage.removeItem(CONST.HISTORY_KEY);
     renderHistory();
     EL.historyMask.classList.remove('show');
-    showToast('已清空记录');
+    showToast("已清空记录");
 };
 EL.orderInput.addEventListener("keydown",e=>{
-    if(e.key==="Enter")EL.queryBtn.click();
-})
+    if(e.key === "Enter") EL.queryBtn.click();
+});
 </script>
 </body>
 </html>
