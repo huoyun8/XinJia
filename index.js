@@ -26,10 +26,10 @@ app.options("/", (req, res) => {
 
 async function queryLocalApi(trackNo) {
   try {
-    const urlParams = new URLSearchParams();
-    urlParams.set("waybillStr", trackNo);
-    urlParams.set("secretkey", CONFIG.localApi.secretkey);
-    const fullUrl = `${CONFIG.localApi.host}${CONFIG.localApi.path}?${urlParams.toString()}`;
+    // 手动编码单个参数，不再用URLSearchParams整体编码，防止双重编码
+    const waybillStr = encodeURIComponent(trackNo);
+    const sk = encodeURIComponent(CONFIG.localApi.secretkey);
+    const fullUrl = `${CONFIG.localApi.host}${CONFIG.localApi.path}?waybillStr=${waybillStr}&secretkey=${sk}`;
     console.log("上游完整请求地址：", fullUrl);
 
     const controller = new AbortController();
