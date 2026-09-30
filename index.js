@@ -14,7 +14,7 @@ app.use(cors({
 // 解析POST json body
 app.use(express.json({ limit: "10kb" }));
 
-// 固定上游鉴权配置，和你Netlify函数完全一致
+// 固定上游鉴权配置，和原代码完全一致
 const CONFIG = {
   clientCode: "20260928",
   apiToken: "6d3bacb8-f628-48c2-8325-755802702a05",
@@ -23,13 +23,13 @@ const CONFIG = {
   timeoutMs: 8000
 };
 
-// 预检OPTIONS 单独处理
-app.options("/trackProxy", (req, res) => {
+// 根路径OPTIONS预检（原/trackProxy逻辑迁移到/）
+app.options("/", (req, res) => {
   res.sendStatus(200);
 });
 
-// 核心中转接口
-app.post("/trackProxy", async (req, res) => {
+// 核心中转接口：路由改为根路径 /，无需后缀
+app.post("/", async (req, res) => {
   try {
     const trackNo = (req.body.trackNo || "").trim();
     console.log("收到查询单号:", trackNo);
@@ -56,7 +56,7 @@ app.post("/trackProxy", async (req, res) => {
       };
       console.log(`【${type}】请求报文:`, payload);
 
-      // 超时强制中断请求，卡死问题修复
+      // 超时强制中断请求
       const signal = AbortSignal.timeout(CONFIG.timeoutMs);
       const fetchRes = await fetch(CONFIG.upstreamUrl, {
         method: "POST",
@@ -66,7 +66,6 @@ app.post("/trackProxy", async (req, res) => {
         },
         body: JSON.stringify(payload)
       });
-
       const data = await fetchRes.json();
       console.log(`【${type}】上游返回:`, data);
       lastUpstreamResp = data;
@@ -84,7 +83,6 @@ app.post("/trackProxy", async (req, res) => {
     // 三种类型全部无有效数据，返回最后一次上游响应
     console.log("全部类型查询无匹配运单，返回最后上游结果");
     return res.json(lastUpstreamResp);
-
   } catch (err) {
     console.error("中转全局捕获异常:", err.message, err.stack);
     // 区分超时/网络错误提示
@@ -98,12 +96,12 @@ app.post("/trackProxy", async (req, res) => {
   }
 });
 
-// 拦截非POST非法请求
-app.all("/trackProxy", (req, res) => {
+// 拦截根路径下非POST非法请求
+app.all("/", (req, res) => {
   return res.json({ code: -1, msg: "仅支持 POST 请求" });
 });
 
-// Render健康检测必填路由
+// Render健康检测路由（保留，不影响业务）
 app.get("/", (req, res) => {
   res.send("Track Proxy Service Running OK | Render Node Express");
 });
