@@ -227,16 +227,7 @@ const CONST={
     TOAST_SHOW_TIME:1200,
     HISTORY_KEY:"track_query_history",
     MAX_HISTORY_COUNT:10,
-    // 统一中转后端地址(唯一入口: 1/2号走 /nextsls, 3号走 /)
     PROXY_API:"https://xinjia5.onrender.com"
-};
-const countryMap = {
-  "AT": "奥地利","BE": "比利时","BG": "保加利亚","HR": "克罗地亚","CY": "塞浦路斯",
-  "CZ": "捷克","DK": "丹麦","EE": "爱沙尼亚","FI": "芬兰","FR": "法国",
-  "DE": "德国","GR": "希腊","HU": "匈牙利","IE": "爱尔兰","IT": "意大利",
-  "LV": "拉脱维亚","LT": "立陶宛","LU": "卢森堡","MT": "马耳他","NL": "荷兰",
-  "PL": "波兰","PT": "葡萄牙","RO": "罗马尼亚","SK": "斯洛伐克","SI": "斯洛文尼亚",
-  "ES": "西班牙","SE": "瑞典","US": "美国"
 };
 let toastQueue=[],hasRefreshedQr=false;
 const showToast=msg=>{
@@ -287,73 +278,35 @@ EL.resetBtn.onclick=()=>{
     EL.serviceCard.style.display='block';
     showToast('已清空输入单号');
 };
-// 1、2号查询(走统一后端 /nextsls)
-const getSingleTrackOld=async num=>{
+const getTrack=async num=>{
     try{
-        const res=await fetch(CONST.PROXY_API+"/nextsls",{
+        const res=await fetch(CONST.PROXY_API+"/track",{
             method:"POST",
             headers:{"Content-Type":"application/json"},
             body:JSON.stringify({trackNo:num}),
-            signal:AbortSignal.timeout(7000)
+            signal:AbortSignal.timeout(15000)
         });
         if(!res.ok)return null;
         const json=await res.json();
-        if(json?.status===1&&json?.data?.shipment) return Array.isArray(json.data.shipment)?json.data.shipment:[json.data.shipment];
+        if(json.code===0 && json.data) return json.data;
     }catch(err){
-        console.error("nextsls中转查询异常",err);
-    }
-    return null;
-};
-// 3号(SCF)查询(走统一后端 /)
-async function getBackupProxyTrack(no){
-    try{
-        const res = await fetch(CONST.PROXY_API,{
-            method:"POST",
-            headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({trackNo: no}),
-            signal:AbortSignal.timeout(7000)
-        })
-        if(!res.ok) return null;
-        const json = await res.json();
-        console.log("中转接口返回",CONST.PROXY_API, json);
-        if(json.code === 0 && json.data && Array.isArray(json.data) && json.data.length>0 && !json.data[0].errormsg){
-            return {type:"scf", data:json.data[0], inputNo:no};
-        }
-    }catch(e){
-        console.warn("中转接口失败", CONST.PROXY_API, e.message);
+        console.error("统一中转查询异常",err);
     }
     return null;
 }
-function renderShipItem(source,idx,queryNo){
-    let inputNo,trackList,countryText,parcelCount=null,transNo="";
-    let trackTimeKey,trackDescKey,statusText,statusClass;
-    if(source.type === "scf"){
-        const d = source.data;
-        inputNo = source.inputNo;
-        transNo = d.tracknumber || d.waybillnumber || "";
-        trackList = d.trackItems || [];
-        trackTimeKey = "trackdate";
-        trackDescKey = "info";
-        const cc = (d.countrycode || "").toUpperCase();
-        countryText = countryMap[cc] || d.countrycode || "暂无";
-        parcelCount = null;
-        statusText = d.orderstatusName || d.orderstatus || "运输中";
-        statusClass = (d.orderstatus === "Sign" || d.orderstatusName === "已签收") ? "tag-delivered" : "tag-transit";
-    }else{
-        const d = source;
-        inputNo = queryNo;
-        transNo = d.outer_carrier_tracking_number || "";
-        trackList = d.traces || [];
-        trackTimeKey = "time";
-        trackDescKey = "info";
-        countryText = d.country || "";
-        if(d.postcode){
-            countryText += " " + d.postcode;
-        }
-        parcelCount = d.parcel_count;
-        statusText = d.status === 'delivered' ? '已签收' : '运输中';
-        statusClass = d.status === 'delivered' ? 'tag-delivered' : 'tag-transit';
+function renderShipItem(d, idx, queryNo){
+    const inputNo = d.inputNo || queryNo;
+    const transNo = d.transNo || "";
+    const trackList = d.traces || [];
+    const trackTimeKey = "time";
+    const trackDescKey = "info";
+    let countryText = d.country || "";
+    if(d.postcode){
+        countryText += " " + d.postcode;
     }
+    const parcelCount = d.parcelCount;
+    const statusText = d.statusText || "运输中";
+    const statusClass = d.status === "delivered" ? "tag-delivered" : "tag-transit";
     const sort=[...trackList].sort((a,b)=>new Date(b[trackTimeKey]) - new Date(a[trackTimeKey]));
     const tid=`${idx}-${queryNo}`;
     const previewList=sort.slice(0,2);
@@ -416,23 +369,20 @@ function renderShipItem(source,idx,queryNo){
     if(sort.length === 0){
         html += `<div style="margin-top:8px;color:#888;font-size:14px;">暂未获取到物流轨迹</div>`;
     }
-    if(source.type === "scf" && source.data.subOrderList && source.data.subOrderList.length > 0 && source.data.subOrderTrackItems){
+    if(d.subOrders && d.subOrders.length > 0){
         html += `<div style="margin-top:16px;padding-top:12px;border-top:1px dashed #e5e7eb;">`;
         html += `<div style="font-size:16px;font-weight:bold;color:#333;margin-bottom:8px;">子单号轨迹</div>`;
-        source.data.subOrderList.forEach(subNo=>{
-            const subTrackList = source.data.subOrderTrackItems[subNo];
-            if(subTrackList && Array.isArray(subTrackList) && subTrackList.length > 0){
-                const subSort = [...subTrackList].sort((a,b)=>new Date(b.trackdate) - new Date(a.trackdate));
-                html += `<div style="margin-bottom:12px;">`;
-                html += `<div style="font-size:14px;color:#0074cc;font-weight:bold;margin-bottom:6px;">子单号：${subNo}</div>`;
-                subSort.slice(0,2).forEach(t=>{
-                    html += `<div class="timeline-item">
-                        <div class="track-time">${t.trackdate || ""}</div>
-                        <div class="track-desc">${t.info || ""}${t.location ? ' — ' + t.location : ''}</div>
-                    </div>`;
-                });
-                html += `</div>`;
-            }
+        d.subOrders.forEach(sub=>{
+            const subSort = [...sub.traces].sort((a,b)=>new Date(b.time) - new Date(a.time));
+            html += `<div style="margin-bottom:12px;">`;
+            html += `<div style="font-size:14px;color:#0074cc;font-weight:bold;margin-bottom:6px;">子单号：${sub.no}</div>`;
+            subSort.slice(0,2).forEach(t=>{
+                html += `<div class="timeline-item">
+                    <div class="track-time">${t.time || ""}</div>
+                    <div class="track-desc">${t.info || ""}${t.location ? ' — ' + t.location : ''}</div>
+                </div>`;
+            });
+            html += `</div>`;
         });
         html += `</div>`;
     }
@@ -480,20 +430,9 @@ EL.queryBtn.onclick=async ()=>{
         for(let idx=0; idx<unique.length; idx++){
             const currNo = unique[idx];
             EL.resultBox.innerHTML=`<div class="loading-tip">🔄 正在查询第${idx+1}/${unique.length}个：${currNo}</div>`;
-            // 第一步：优先查旧渠道1、2
-            const oldRes = await getSingleTrackOld(currNo);
-            if(oldRes && oldRes.length){
-                oldRes.forEach((item,i)=>{
-                    allRenderHtml += renderShipItem(item, idx*10 + i, currNo);
-                })
-                globalHasValid = true;
-                addHistoryRecord(currNo);
-                continue;
-            }
-            // 第二步：1、2无数据，再轮询中转3、4
-            const proxyRes = await getBackupProxyTrack(currNo);
-            if(proxyRes){
-                allRenderHtml += renderShipItem(proxyRes, idx*10+50, currNo);
+            const trackData = await getTrack(currNo);
+            if(trackData){
+                allRenderHtml += renderShipItem(trackData, idx*10, currNo);
                 globalHasValid = true;
                 addHistoryRecord(currNo);
             }else{
