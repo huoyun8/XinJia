@@ -11,7 +11,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "10kb" }));
 
-// 全局配置
+// 全局接口配置
 const CONFIG = {
   api1Url: "https://tracking.nextsls.com/rest/trace/tracking/lists?app=656d92f573f0427e8e5ca536&number=",
   api2Url: "https://tracking.nextsls.com/rest/trace/tracking/lists?app=67204e5c73f04246486924cb&number=",
@@ -25,9 +25,7 @@ const CONFIG = {
   }
 };
 
-app.options("/", (req, res) => {
-  res.sendStatus(200);
-});
+app.options("/", (req, res) => res.sendStatus(200));
 
 // 统一查询入口
 app.post("/", async (req, res) => {
@@ -36,81 +34,71 @@ app.post("/", async (req, res) => {
     console.log("收到查询单号：", inputNo);
 
     // 单号基础校验
-    if (!inputNo) {
-      return res.json({ code: -2, msg: "运单号不能为空" });
-    }
-    if (inputNo.length < 5 || inputNo.length > 18) {
-      return res.json({ code: -2, msg: "单号长度需5-18位，请检查" });
-    }
+    if (!inputNo) return res.json({ code: -2, msg: "运单号不能为空" });
+    if (inputNo.length < 5 || inputNo.length > 18) return res.json({ code: -2, msg: "单号长度需5-18位，请检查" });
 
     // ====================== 第一步：查询接口1 ======================
-    let api1ValidData = null;
+    let api1ValidList = null;
     try {
       const abortCtrl = new AbortController();
       const timer = setTimeout(() => abortCtrl.abort(), CONFIG.fetchTimeout);
-      const resp = await fetch(CONFIG.api1Url + encodeURIComponent(inputNo), {
-        signal: abortCtrl.signal
-      });
+      const resp = await fetch(CONFIG.api1Url + encodeURIComponent(inputNo), { signal: abortCtrl.signal });
       clearTimeout(timer);
-
-      // http状态异常直接抛出，进入catch丢弃
-      if (!resp.ok) throw new Error(`HTTP状态码${resp.status}`);
-      const jsonData = await resp.json();
-
-      // 校验是否存在有效物流数据
-      if (jsonData.status === 1 && jsonData.data && Array.isArray(jsonData.data.shipment) && jsonData.data.shipment.length > 0) {
-        api1ValidData = jsonData.data.shipment;
+      if (resp.ok) {
+        const json = await resp.json();
+        if (json.status === 1 && json.data?.shipment?.length > 0) {
+          api1ValidList = json.data.shipment;
+        }
       }
     } catch (err) {
-      // 接口1任意错误：超时/4xx/5xx/json解析失败，直接丢弃，打印日志继续下一个
-      console.log(`【接口1】查询失败，丢弃，错误信息：${err.message}`);
+      console.log(`【接口1】异常丢弃：${err.message}`);
     }
-
-    // 接口1拿到有效数据，直接返回，终止流程
-    if (api1ValidData) {
-      return res.json({
-        code: 0,
-        source: "api1",
-        data: api1ValidData
-      });
+    // 接口1查到数据，格式化后直接返回
+    if (api1ValidList) {
+      const formatData = api1ValidList.map(item => ({
+        inputNo: inputNo,
+        transNo: item.outer_carrier_tracking_number || "",
+        trackList: item.traces || [],
+        country: item.country || "",
+        parcelCount: item.parcel_count || null,
+        status: item.status || "transit"
+      }));
+      return res.json({ code: 0, data: formatData });
     }
 
     // ====================== 第二步：查询接口2 ======================
-    let api2ValidData = null;
+    let api2ValidList = null;
     try {
       const abortCtrl = new AbortController();
       const timer = setTimeout(() => abortCtrl.abort(), CONFIG.fetchTimeout);
-      const resp = await fetch(CONFIG.api2Url + encodeURIComponent(inputNo), {
-        signal: abortCtrl.signal
-      });
+      const resp = await fetch(CONFIG.api2Url + encodeURIComponent(inputNo), { signal: abortCtrl.signal });
       clearTimeout(timer);
-
-      if (!resp.ok) throw new Error(`HTTP状态码${resp.status}`);
-      const jsonData = await resp.json();
-
-      if (jsonData.status === 1 && jsonData.data && Array.isArray(jsonData.data.shipment) && jsonData.data.shipment.length > 0) {
-        api2ValidData = jsonData.data.shipment;
+      if (resp.ok) {
+        const json = await resp.json();
+        if (json.status === 1 && json.data?.shipment?.length > 0) {
+          api2ValidList = json.data.shipment;
+        }
       }
     } catch (err) {
-      console.log(`【接口2】查询失败，丢弃，错误信息：${err.message}`);
+      console.log(`【接口2】异常丢弃：${err.message}`);
     }
-
-    // 接口2拿到有效数据，直接返回，终止流程
-    if (api2ValidData) {
-      return res.json({
-        code: 0,
-        source: "api2",
-        data: api2ValidData
-      });
+    // 接口2查到数据，格式化后直接返回
+    if (api2ValidList) {
+      const formatData = api2ValidList.map(item => ({
+        inputNo: inputNo,
+        transNo: item.outer_carrier_tracking_number || "",
+        trackList: item.traces || [],
+        country: item.country || "",
+        parcelCount: item.parcel_count || null,
+        status: item.status || "transit"
+      }));
+      return res.json({ code: 0, data: formatData });
     }
 
     // ====================== 第三步：查询接口3（内网三段式） ======================
-    console.log("接口1、2全部无有效数据/查询失败，进入接口3查询");
+    console.log("接口1、2无数据，进入接口3查询");
     const api3Cfg = CONFIG.api3;
-    let api3HasValid = false;
-    let api3ReturnData = [];
-
-    // 循环三种单号类型依次尝试
+    let api3FinalData = null;
     for (const type of api3Cfg.types) {
       try {
         const reqBody = {
@@ -126,57 +114,39 @@ app.post("/", async (req, res) => {
           body: JSON.stringify(reqBody)
         });
         clearTimeout(timer);
-
-        if (!resp.ok) throw new Error(`HTTP状态码${resp.status}`);
-        const jsonData = await resp.json();
-        console.log(`【接口3-${type}】返回原始数据：`, jsonData);
-
-        // 判断当前类型是否查到有效运单
-        if (jsonData.code === 0 && jsonData.data && jsonData.data.length > 0 && !jsonData.data[0].errormsg) {
-          api3HasValid = true;
-          api3ReturnData = jsonData.data;
-          break; // 当前类型成功，跳出循环，不再尝试剩余类型
+        if (!resp.ok) throw new Error(`HTTP${resp.status}`);
+        const json = await resp.json();
+        console.log(`【接口3-${type}】返回：`, json);
+        // 校验：存在运单 + 有轨迹才算有效
+        if (json.code === 0 && json.data?.length > 0 && !json.data[0].errormsg && json.data[0].trackItems?.length > 0) {
+          api3FinalData = {
+            inputNo: inputNo,
+            transNo: json.data[0].tracknumber || "",
+            trackList: json.data[0].trackItems || [],
+            country: json.data[0].countrycode || "",
+            parcelCount: null,
+            status: json.data[0].orderstatus || "transit"
+          };
+          break;
         }
       } catch (err) {
-        // 当前type查询失败，丢弃，继续下一种单号类型
-        console.log(`【接口3-${type}】查询失败，丢弃，错误信息：${err.message}`);
+        console.log(`【接口3-${type}】异常丢弃：${err.message}`);
         continue;
       }
     }
+    // 接口3查到有效数据返回
+    if (api3FinalData) return res.json({ code: 0, data: [api3FinalData] });
 
-    // 接口3任意一种类型查到数据，直接返回
-    if (api3HasValid) {
-      return res.json({
-        code: 0,
-        source: "api3",
-        data: api3ReturnData
-      });
-    }
-
-    // 1、2、3全部渠道无有效数据
-    return res.json({
-      code: 3,
-      msg: "单号错误，请核对"
-    });
-
+    // 1/2/3全部渠道无有效运单
+    return res.json({ code: 3, msg: "单号错误，请核对" });
   } catch (globalErr) {
-    console.error("中转服务全局致命异常：", globalErr);
-    let msg = "中转服务异常";
-    if (globalErr.name === "AbortError") msg = "上游接口请求超时";
+    console.error("全局服务异常：", globalErr);
+    const msg = globalErr.name === "AbortError" ? "上游接口请求超时" : "中转服务异常";
     return res.json({ code: -99, msg, error: globalErr.message });
   }
 });
 
-// 健康检测路由
-app.get("/", (req, res) => {
-  res.send("代理服务运行正常 | 顺序容错查询1→2→3");
-});
+app.get("/", (req, res) => res.send("统一中转服务 串行查询1→2→3"));
+app.all("/", (req, res) => res.json({ code: -1, msg: "仅支持POST查询请求" }));
 
-// 拦截非法请求方式
-app.all("/", (req, res) => {
-  return res.json({ code: -1, msg: "仅支持POST查询请求" });
-});
-
-app.listen(PORT, () => {
-  console.log(`统一容错中转服务启动成功，监听端口：${PORT}`);
-});
+app.listen(PORT, () => console.log(`服务启动，监听端口${PORT}`));
