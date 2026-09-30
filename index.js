@@ -28,20 +28,19 @@ async function queryLocalApi(trackNo) {
   try {
     const fullUrl = `${CONFIG.localApi.host}${CONFIG.localApi.path}`;
     console.log("上游请求地址：", fullUrl);
-    const postBody = {
-      waybillStr: trackNo,
-      secretkey: CONFIG.localApi.secretkey
-    };
-    console.log("POST提交参数：", postBody);
+    const formBody = new URLSearchParams();
+    formBody.append("waybillStr", trackNo);
+    formBody.append("secretkey", CONFIG.localApi.secretkey);
+    console.log("表单提交参数：", formBody.toString());
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CONFIG.timeoutMs);
     const resp = await fetch(fullUrl, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/x-www-form-urlencoded"
       },
-      body: JSON.stringify(postBody),
+      body: formBody.toString(),
       signal: controller.signal
     });
     clearTimeout(timer);
