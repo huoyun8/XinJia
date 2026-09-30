@@ -30,6 +30,7 @@ const NEXT_SLS_APIS = [
 // OPTIONS 预检
 app.options("/", (req, res) => res.sendStatus(200));
 app.options("/nextsls", (req, res) => res.sendStatus(200));
+app.options("/track", (req, res) => res.sendStatus(200));
 
 // ---------- nextsls 中转: 依次尝试 2 个服务商接口, 返回第一个有数据的 ----------
 app.post("/nextsls", async (req, res) => {
@@ -119,6 +120,104 @@ app.post("/", async (req, res) => {
 // 健康检测 GET
 app.get("/", (req, res) => {
   res.send("代理服务运行正常 | 渲染 Node Express");
+});
+
+// ========== 统一口径: 前端只调 /track, 后续加渠道只改这里 ==========
+// nextsls 结果归一化
+function normNextsls(json, inputNo, channel) {
+  const s = json.data.shipment;
+  return {
+    code: 0, msg: "查询成功", channel,
+    data: {
+      inputNo,
+      carrier: s.outer_carrier_code || "",
+      transNo: s.outer_carrier_tracking_number || "",
+      country: s.country || "",
+      postcode: s.postcode || "",
+      status: s.status === "delivered" ? "delivered" : "transit",
+      statusText: s.status === "delivered" ? "已签收" : "运输中",
+      parcelCount: (s.parcel_count || s.parcel_count === 0) ? s.parcel_count : null,
+      traces: (s.traces || []).map(t => ({ time: t.time || "", info: t.info || "", location: "" })),
+      subOrders: []
+    }
+  };
+}
+// SCF 结果归一化
+function normScf(result, inputNo) {
+  const d = result.data[0];
+  const delivered = d.orderstatus === "Sign" || d.orderstatusName === "已签收";
+  const subOrders = [];
+  if (d.subOrderList && Array.isArray(d.subOrderList) && d.subOrderTrackItems) {
+    for (const subNo of d.subOrderList) {
+      const arr = d.subOrderTrackItems[subNo];
+      if (arr && Array.isArray(arr) && arr.length) {
+        subOrders.push({
+          no: subNo,
+          traces: arr.map(t => ({ time: t.trackdate || "", info: t.info || "", location: t.location || "" }))
+        });
+      }
+    }
+  }
+  return {
+    code: 0, msg: "查询成功", channel: 3,
+    data: {
+      inputNo,
+      carrier: "",
+      transNo: d.waybillnumber || d.tracknumber || "",
+      country: d.countrycode || "",
+      postcode: d.postcode || "",
+      status: delivered ? "delivered" : "transit",
+      statusText: d.orderstatusName || d.orderstatus || "运输中",
+      parcelCount: null,
+      traces: (d.trackItems || []).map(t => ({ time: t.trackdate || "", info: t.info || "", location: t.location || "" })),
+      subOrders
+    }
+  };
+}
+// 统一查询入口: 依次试 1/2号(nextsls) -> 3号(SCF), 归一化返回
+app.post("/track", async (req, res) => {
+  try {
+    const inputNo = (req.body.trackNo || "").trim().toUpperCase();
+    console.log("统一查询:", inputNo);
+    if (!inputNo) return res.json({ code: -2, msg: "运单号不能为空", data: null });
+    if (inputNo.length < 5 || inputNo.length > 18) return res.json({ code: -2, msg: "单号长度需5-18位，请检查", data: null });
+
+    for (let i = 0; i < NEXT_SLS_APIS.length; i++) {
+      const api = NEXT_SLS_APIS[i];
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), CONFIG.timeoutMs);
+        const rawRes = await fetch(api + encodeURIComponent(inputNo), {
+          signal: controller.signal,
+          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
+        });
+        clearTimeout(timer);
+        const json = await rawRes.json();
+        if (json && json.status === 1 && json.data && json.data.shipment) {
+          console.log(`统一查询命中 nextsls 渠道${i + 1}: ${inputNo}`);
+          return res.json(normNextsls(json, inputNo, i + 1));
+        }
+      } catch (err) { clearTimeout(timer); }
+    }
+
+    for (const type of CONFIG.types) {
+      const postData = { authorization: { code: CONFIG.clientCode, token: CONFIG.apiToken }, datas: { [type]: [inputNo] } };
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), CONFIG.timeoutMs);
+      const rawRes = await fetch(CONFIG.targetUrl, { method: "POST", signal: controller.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify(postData) });
+      clearTimeout(timer);
+      const result = await rawRes.json();
+      if (result.code === 0 && result.data && Array.isArray(result.data) && result.data.length > 0 && !result.data[0].errormsg) {
+        console.log(`统一查询命中 SCF 3号: ${inputNo}`);
+        return res.json(normScf(result, inputNo));
+      }
+    }
+    console.log("统一查询: 1/2/3号均未命中:", inputNo);
+    return res.json({ code: 1, msg: "1/2/3渠道均未匹配到运单", data: null });
+  } catch (err) {
+    console.error("统一查询异常:", err);
+    return res.json({ code: -99, msg: "中转服务异常:" + err.message, data: null });
+  }
 });
 
 // 拦截非 POST 请求
