@@ -507,7 +507,7 @@ EL.queryBtn.onclick=async ()=>{
                 globalHasValid = true;
                 addHistoryRecord(currNo);
             }else{
-                fullFailList.push({no:currNo, msg:"1/2/3/4渠道均未匹配到运单"});
+                fullFailList.push({no:currNo, msg:"单号错误，请检查。"});
             }
         }
         let resTitle = `<h3>查询结果（共${unique.length}个单号）</h3>`;
