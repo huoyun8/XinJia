@@ -25,6 +25,16 @@ app.options("/", (req, res) => {
   res.sendStatus(200);
 });
 
+// 清洗XML：截取从<AjaxResult>开始的内容，剔除前面脏字符
+function cleanXml(raw) {
+  const startTag = "<AjaxResult>";
+  const idx = raw.indexOf(startTag);
+  if (idx > -1) {
+    return raw.slice(idx);
+  }
+  return raw;
+}
+
 async function queryLocalApi(trackNo) {
   try {
     const waybillStr = encodeURIComponent(trackNo);
@@ -45,10 +55,11 @@ async function queryLocalApi(trackNo) {
 
     console.log("上游HTTP状态码：", resp.status);
     const rawText = await resp.text();
-    console.log("上游原始返回XML：", rawText);
+    console.log("上游原始返回：", rawText);
+    const xmlText = cleanXml(rawText);
+    console.log("清洗后的XML：", xmlText);
 
-    // 解析XML
-    const xmlData = await parseStringPromise(rawText);
+    const xmlData = await parseStringPromise(xmlText);
     const ajax = xmlData.AjaxResult;
     const resCode = ajax.code[0];
     const msg = ajax.msg[0];
