@@ -31,9 +31,9 @@ body{min-height:100vh;padding:15px 12px;background:#f7f7f7;}
 .btn-row button:active{transform:scale(.96);opacity:.9;box-shadow:0 1px 3px rgba(0,0,0,.08);}
 .btn-reset{background:#ff4444;flex:0 0 90px;}
 .btn-query{background:#0074cc;flex:1;}
-.result-box{margin-top:18px;border:1px solid #ddd;background:#fff;padding:14px;min-height:120px;display:none;border-radius:6px;font-size:15px;}
+.result-box{margin-top:14px;border:1px solid #ddd;background:#fff;padding:12px 14px;min-height:70px;display:none;border-radius:6px;font-size:15px;}
 .result-box h3{margin-bottom:12px;color:#0074cc;}
-.loading-tip{text-align:center;padding:40px 0;color:#0074cc;font-size:16px;}
+.loading-tip{text-align:center;padding:14px 0;color:#0074cc;font-size:16px;}
 .ship-card{padding:0;margin-bottom:16px;background:transparent;}
 .ship-head{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px 0;padding-top:12px;border-top:1px solid #e5e7eb;align-items:center;}
 .status-tag{padding:4px 10px;border-radius:4px;color:#fff;font-weight:bold;}
@@ -43,7 +43,6 @@ body{min-height:100vh;padding:15px 12px;background:#f7f7f7;}
 .info-row{display:flex;align-items:center;margin:6px 0;gap:8px;}
 .info-label{color:#666;flex-shrink:0;width:64px;white-space:nowrap;}
 .text-blue{color:#0074cc;font-weight:bold;white-space:nowrap;text-decoration:underline;transition:.2s;}
-/* 查询单号文字取消点击光标、黑色普通文本 */
 .info-row .text-blue-static{color:#000;font-weight:normal;white-space:nowrap;cursor:default;text-decoration:none;}
 .text-blue{cursor:pointer;}
 .text-blue:hover{color:#004a85;}
@@ -80,7 +79,6 @@ body{min-height:100vh;padding:15px 12px;background:#f7f7f7;}
 .modal-title{font-size:20px;color:#222;font-weight:600;}
 .modal-close{font-size:28px;color:#999;cursor:pointer;line-height:1;transition:.2s;}
 .modal-close:hover{color:#333;}
-/* 增加上边距，和标题分隔开 */
 .history-clear-box{width:100%;background:#ff3333;text-align:center;padding:9px 0;border-radius:8px;margin-top:12px;}
 .history-clear{display:inline-block;padding:0 24px;color:#fff;cursor:pointer;font-size:15px;transition:.2s;}
 .history-clear:active{opacity:.8;}
@@ -228,8 +226,14 @@ const CONST={
     HISTORY_KEY:"track_query_history",
     MAX_HISTORY_COUNT:10,
     PROXY_LIST:[
-        "https://xinjia5.onrender.com/track",
-        "https://hohuo.netlify.app/.netlify/functions/trackProxy"
+        "https://1496112582-1066hd2ej5.ap-guangzhou.tencentscf.com/",
+        "https://xinjia.netlify.app/.netlify/functions/trackProxy",
+        "https://xinjia.onrender.com/track",
+        "https://xinjia2.onrender.com/track"
+    ],
+    API_ENCRYPT:[
+        "aHR0cHM6Ly90cmFja2luZy5uZXh0c2xzLmNvbS9yZXN0L3RyYWNlL3RyYWNraW5nL2xpc3RzP2FwcD02NTZkOTJmNTczZjA0MjdlOGU1Y2E1MzYmbnVtYmVyPQ==",
+        "aHR0cHM6Ly90cmFja2luZy5uZXh0c2xzLmNvbS9yZXN0L3RyYWNlL3RyYWNraW5nL2xpc3RzP2FwcD02NzIwNGU1YzczZjA0MjQ2NDg2OTI0Y2ImbnVtYmVyPQ=="
     ]
 };
 let toastQueue=[],hasRefreshedQr=false;
@@ -281,23 +285,41 @@ EL.resetBtn.onclick=()=>{
     EL.serviceCard.style.display='block';
     showToast('已清空输入单号');
 };
+const normNextslsFront=(s,inputNo)=>({
+    inputNo,
+    carrier:s.outer_carrier_code||"",
+    transNo:s.outer_carrier_tracking_number||"",
+    country:s.country||"",
+    postcode:s.postcode||"",
+    status:s.status==="delivered"?"delivered":"transit",
+    statusText:s.status==="delivered"?"已签收":"运输中",
+    parcelCount:(s.parcel_count||s.parcel_count===0)?s.parcel_count:null,
+    traces:(s.traces||[]).map(t=>({time:t.time||"",info:t.info||"",location:""})),
+    subOrders:[]
+});
+const firstValid=promises=>new Promise(resolve=>{
+    let pending=promises.length;
+    if(pending===0)return resolve(null);
+    promises.forEach(p=>Promise.resolve(p).then(r=>{
+        if(r){resolve(r);}
+        else if(--pending===0){resolve(null);}
+    }));
+});
 const getTrack=async num=>{
-    for(const url of CONST.PROXY_LIST){
-        try{
-            const res=await fetch(url,{
-                method:"POST",
-                headers:{"Content-Type":"application/json"},
-                body:JSON.stringify({trackNo:num}),
-                signal:AbortSignal.timeout(15000)
-            });
-            if(!res.ok) continue;
-            const json=await res.json();
-            if(json.code===0 && json.data && !Array.isArray(json.data)) return json.data;
-        }catch(err){
-            console.warn("备用接口失败切换", url, err.message);
-        }
+    const tasks=[];
+    for(const b64 of CONST.API_ENCRYPT){
+        tasks.push(fetch(atob(b64)+encodeURIComponent(num),{signal:AbortSignal.timeout(7000)})
+            .then(r=>r.ok?r.json():null)
+            .then(j=>(j?.status===1&&j?.data?.shipment)?normNextslsFront(j.data.shipment,num):null)
+            .catch(()=>null));
     }
-    return null;
+    for(const url of CONST.PROXY_LIST){
+        tasks.push(fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({trackNo:num}),signal:AbortSignal.timeout(15000)})
+            .then(r=>r.ok?r.json():null)
+            .then(j=>(j.code===0&&j.data&&!Array.isArray(j.data))?j.data:null)
+            .catch(e=>{console.warn("备用接口失败切换",url,e.message);return null;}));
+    }
+    return firstValid(tasks);
 }
 function renderShipItem(d, idx, queryNo){
     const inputNo = d.inputNo || queryNo;
@@ -441,7 +463,7 @@ EL.queryBtn.onclick=async ()=>{
                 globalHasValid = true;
                 addHistoryRecord(currNo);
             }else{
-                fullFailList.push({no:currNo, msg:"1/2/3/4渠道均未匹配到运单"});
+                fullFailList.push({no:currNo, msg:"单号错误，请检查"});
             }
         }
         let resTitle = `<h3>查询结果（共${unique.length}个单号）</h3>`;
