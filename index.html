@@ -252,6 +252,7 @@ const getTrack=async num=>{
             .then(j=>(j?.status===1&&j?.data?.shipment)?normShip(j.data.shipment,num):null).catch(()=>null));
     }
     for(const url of CFG.PROXY_LIST){
+        // 轮询代理谁快用谁；件数/邮编由后端返回轨迹时自动附带为 parcelCount/postcode 字段
         tasks.push(mkFetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({trackNo:num})},15000)
             .then(r=>r.ok?r.json():null)
             .then(j=>(j.code===0&&j.data&&!Array.isArray(j.data))?j.data:null).catch(()=>null));
@@ -264,6 +265,10 @@ const renderShip=(d,queryNo)=>{
     const statusClass=d.status==="delivered"?"tag-delivered":"tag-transit";
     const statusText=d.statusText||"运输中";
     const tid=queryNo+'_'+sort.length;
+    let countryText=d.country||"";
+    if(d.postcode)countryText+=' '+d.postcode;
+    let destLine=`<span>${esc(countryText)}</span>`;
+    if(d.parcelCount!==null&&d.parcelCount!==undefined)destLine+=` <span style="margin-left:12px;color:#333;">包裹：${d.parcelCount}件</span>`;
     let transHtml='<span>无</span>';
     if(transNo){
         const parts=transNo.split(' ');
@@ -278,7 +283,7 @@ const renderShip=(d,queryNo)=>{
         <div class="ship-head"><span class="status-tag ${statusClass}">${statusText}</span><span class="tip-faint">如轨迹异常，尝试再次查询</span></div>
         <div class="info-row"><span class="info-label">查询单号：</span><span class="text-plain" style="cursor:pointer;" onclick="fillAndSearch('${esc(inputNo.trim())}')">${esc(inputNo.trim())}</span></div>
         <div class="info-row"><span class="info-label">转运单号：</span>${transHtml}</div>
-        <div class="info-row"><span class="info-label">目的地：</span><span>${esc(d.country||"")}</span></div>
+        <div class="info-row"><span class="info-label">目的地：</span>${destLine}</div>
         <div class="track-preview">`;
     sort.slice(0,2).forEach(t=>html+=trackItem(t.time,t.info));
     html+=`</div>`;
