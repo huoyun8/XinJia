@@ -41,15 +41,7 @@ async function postForm(path, params) {
     return { text, json };
   } finally { clearTimeout(timer); }
 }
-function parseTrackItemHtml(html) {
-  const traces = [];
-  const re = /<span class="trackdate"[^>]*>([^<]+)<\/span>\s*<span class="trackinfo">([\s\S]*?)<\/span>/g;
-  let m;
-  while ((m = re.exec(html))) {
-    traces.push({ time: (m[1] || "").trim(), info: (m[2] || "").replace(/\s+$/, "").replace(/\n+/g, " ").trim(), location: "" });
-  }
-  return traces;
-}
+// 用 waybillnumber 类型查 /api/track（自己的单才命中）
 async function queryApiTrack(waybillNumber) {
   const postData = { authorization: { code: CONFIG.clientCode, token: CONFIG.apiToken }, datas: { waybillnumber: [waybillNumber] } };
   const result = await postJson(CONFIG.targetUrl, postData);
@@ -58,6 +50,7 @@ async function queryApiTrack(waybillNumber) {
   }
   return null;
 }
+// 自己的单：/api/track 状态+轨迹 + /trackList 邮编件数
 function normScf(apiD, tlRec, inputNo) {
   const delivered = apiD.orderstatus === "Sign" || apiD.orderstatusName === "已签收";
   const subOrders = [];
@@ -86,53 +79,27 @@ function normScf(apiD, tlRec, inputNo) {
     }
   };
 }
-function normScfFallback(tlRec, traces, inputNo) {
-  const country = COUNTRY_NAMES[(tlRec.countrycode || "").toUpperCase()] || tlRec.countryname || tlRec.countrycode || "";
-  return {
-    code: 0, msg: "查询成功", channel: 3,
-    data: {
-      inputNo,
-      carrier: "",
-      transNo: tlRec.tracknumber || tlRec.waybillnumber || "",
-      country,
-      postcode: (tlRec.zipcode || "").match(/^\d+/)?.[0] || "",
-      status: "transit",
-      statusText: "运输中",
-      parcelCount: (tlRec.number !== undefined && tlRec.number !== null) ? tlRec.number : null,
-      traces,
-      subOrders: []
-    }
-  };
-}
 app.post("/track", async (req, res) => {
   try {
     const inputNo = (req.body.trackNo || "").trim().toUpperCase();
     if (!inputNo) return res.json({ code: -2, msg: "运单号不能为空", data: null });
     if (inputNo.length < 5 || inputNo.length > 18) return res.json({ code: -2, msg: "单号长度需5-18位，请检查", data: null });
+    // 先 /trackList 拿正确编号 + 邮编件数，同时判断单号是否存在
     const tl = await postForm("/trackList", { "searchList.waybillnumber": inputNo, searchLang: "zh" });
     if (!tl.json || tl.json.code !== 0 || !Array.isArray(tl.json.data) || !tl.json.data.length || tl.json.data[0].errormsg) {
       return res.json({ code: 1, msg: "3号渠道未匹配到运单", data: null });
     }
     const tlRec = tl.json.data[0];
+    // 用 waybillnumber 查 /api/track → 只认自己的单
     const apiD = await queryApiTrack(tlRec.waybillnumber || inputNo);
     if (apiD) {
       return res.json(normScf(apiD, tlRec, inputNo));
     }
-    let traces = [];
-    if (tlRec.pkid && tlRec.waybillnumber) {
-      try {
-        const r2 = await postForm("/trackItem", { orderpkid: tlRec.pkid, waybillnumber: tlRec.waybillnumber, searchLang: "zh" });
-        traces = r2.text ? parseTrackItemHtml(r2.text) : [];
-      } catch (e) { traces = []; }
-    }
-    if (!traces.length && tlRec.outinfo) {
-      traces = [{ time: tlRec.outdate || "", info: tlRec.outinfo || "", location: tlRec.outdesc || "" }];
-    }
-    return res.json(normScfFallback(tlRec, traces, inputNo));
+    // 别人的单：不查 /trackItem，直接返回未匹配
+    return res.json({ code: 1, msg: "3号渠道未匹配到运单", data: null });
   } catch (err) {
     return res.json({ code: -99, msg: "中转服务异常:" + err.message, data: null });
   }
 });
 app.get("/", (req, res) => res.send("ok"));
 app.listen(PORT, () => console.log(`服务启动成功，端口:${PORT}`));
-//（注：内容由AI生成）
