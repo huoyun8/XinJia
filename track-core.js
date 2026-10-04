@@ -118,6 +118,37 @@ function normScf(apiD, tlRec, inputNo) {
   };
 }
 
+// 解析 /trackItem 返回的 HTML，提取完整轨迹（与182原网页折叠展开同源）
+function parseTrackItemHtml(html) {
+  const traces = [];
+  const re = /<span class="trackdate"[^>]*>([^<]+)<\/span>\s*<span class="trackinfo">([\s\S]*?)<\/span>/g;
+  let m;
+  while ((m = re.exec(html))) {
+    traces.push({ time: (m[1] || "").trim(), info: (m[2] || "").replace(/\s+$/, "").replace(/\n+/g, " ").trim(), location: "" });
+  }
+  return traces;
+}
+
+// 别人的单：/trackList 邮编件数 + /trackItem 完整轨迹（状态降级"运输中"）
+function normScfFallback(tlRec, traces, inputNo) {
+  const country = COUNTRY_NAMES[(tlRec.countrycode || "").toUpperCase()] || tlRec.countryname || tlRec.countrycode || "";
+  return {
+    code: 0, msg: "查询成功", channel: 3,
+    data: {
+      inputNo,
+      carrier: "",
+      transNo: tlRec.tracknumber || tlRec.waybillnumber || "",
+      country,
+      postcode: (tlRec.zipcode || "").match(/^\d+/)?.[0] || "",
+      status: "transit",
+      statusText: "运输中",
+      parcelCount: (tlRec.number !== undefined && tlRec.number !== null) ? tlRec.number : null,
+      traces,
+      subOrders: []
+    }
+  };
+}
+
 // 统一主入口：校验 + 查件，返回 {code, msg, data}
 async function queryTrack(inputNoRaw) {
   try {
@@ -130,13 +161,23 @@ async function queryTrack(inputNoRaw) {
       return { code: 1, msg: "3号渠道未匹配到运单", data: null };
     }
     const tlRec = tl.json.data[0];
-    // 用 waybillnumber 查 /api/track → 只认自己的单
+    // 用 waybillnumber 查 /api/track → 自己的单命中（精确状态+轨迹）
     const apiD = await queryApiTrack(tlRec.waybillnumber || inputNo);
     if (apiD) {
       return normScf(apiD, tlRec, inputNo);
     }
-    // 别人的单：不查 /trackItem，直接返回未匹配
-    return { code: 1, msg: "3号渠道未匹配到运单", data: null };
+    // 别人的单：/trackItem 拿完整轨迹（状态降级"运输中"）
+    let traces = [];
+    if (tlRec.pkid && tlRec.waybillnumber) {
+      try {
+        const r2 = await postForm("/trackItem", { orderpkid: tlRec.pkid, waybillnumber: tlRec.waybillnumber, searchLang: "zh" });
+        traces = r2.text ? parseTrackItemHtml(r2.text) : [];
+      } catch (e) { traces = []; }
+    }
+    if (!traces.length && tlRec.outinfo) {
+      traces = [{ time: tlRec.outdate || "", info: tlRec.outinfo || "", location: tlRec.outdesc || "" }];
+    }
+    return normScfFallback(tlRec, traces, inputNo);
   } catch (err) {
     return { code: -99, msg: "中转服务异常:" + err.message, data: null };
   }
