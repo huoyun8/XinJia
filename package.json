@@ -1,15 +1,13 @@
 {
-  "name": "xinjia-onrender",
+  "name": "3haozhongzhuan",
   "version": "1.0.0",
+  "description": "3号中转全查 - 双平台通用纯接口版",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "cors": "^2.8.5"
-  },
-  "engines": {
-    "node": ">=18"
+    "cors": "^2.8.6",
+    "express": "^4.22.3"
   }
 }

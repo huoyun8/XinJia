@@ -1,16 +1,10 @@
-# Render 部署配置 (Web Service)
 services:
   - type: web
-    name: render-track-proxy
+    name: track3haozhongzhuan
     runtime: node
     plan: free
     buildCommand: npm install
-    startCommand: npm start
+    startCommand: node index.js
     envVars:
-      - key: ORIGIN_URL
-        value: http://120.79.98.64:7888
-      - key: UPSTREAM_PORT
-        value: "7888"
-      # COOKIE 为必填敏感项, 建议在 Render 控制台以 Secret 方式填入, 不要写死在仓库
-      - key: COOKIE
-        sync: false
+      - key: PORT
+        value: 10000
